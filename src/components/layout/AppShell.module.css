@@ -1,0 +1,34 @@
+.shell {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100vh;
+  background: var(--bg-app);
+}
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+.content { position: relative; flex: 1; padding: 32px; min-width: 0; }
+/* Soft blue glow under the header (design §2.5) */
+.glow::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 160px;
+  background: var(--glow-page);
+  pointer-events: none;
+}
+.content > * { position: relative; }
+
+.skip {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 500;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  background: var(--brand-red);
+  color: #fff;
+  font-weight: 600;
+  transform: translateY(-200%);
+}
+.skip:focus { transform: none; }
+
+@media (max-width: 860px) { .content { padding: 16px; } }

@@ -1,0 +1,68 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 150ms var(--ease), border-color 150ms var(--ease), box-shadow 150ms var(--ease), transform 90ms var(--ease), color 150ms var(--ease);
+  user-select: none;
+}
+.btn:active:not(:disabled) { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; }
+.btn svg { flex-shrink: 0; }
+
+.lg { height: 40px; }
+.sm { height: 28px; padding: 0 12px; font-size: 12px; }
+.block { width: 100%; }
+
+/* Primary (red) — one per card */
+.primary { background: var(--brand-red); color: #fff; box-shadow: var(--shadow-glow-red); }
+.primary:hover:not(:disabled) { background: var(--brand-red-hover); box-shadow: 0 6px 18px rgba(198, 40, 40, 0.55); }
+
+/* Primary (blue) — lead quick action */
+.blue { background: linear-gradient(135deg, #1743a0 0%, #1e4fa8 100%); color: #fff; border-color: rgba(61, 127, 204, 0.25); }
+.blue:hover:not(:disabled) { background: linear-gradient(135deg, #1a4cb4 0%, #2559bd 100%); }
+
+/* Secondary (outlined) */
+.outline { background: var(--bg-panel); color: var(--accent-blue-light); border-color: var(--accent-blue); }
+.outline:hover:not(:disabled) { background: rgba(21, 101, 192, 0.14); border-color: var(--accent-blue-light); color: #7db1ec; }
+
+/* Ghost / link */
+.ghost { background: transparent; color: var(--accent-blue-light); padding: 0 4px; height: auto; }
+.ghost:hover:not(:disabled) { color: #7db1ec; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Compact: 28px, panel fill, 1px border, white label */
+.compact { height: 28px; padding: 0 14px; background: var(--bg-panel); color: var(--text-primary); border-color: var(--border-card); font-size: 12px; }
+.compact:hover:not(:disabled) { border-color: var(--accent-blue-light); }
+
+/* "Chat" in the member card: filled tint, blue label */
+.tint { background: rgba(21, 101, 192, 0.14); color: var(--accent-blue-light); border-color: transparent; }
+.tint:hover:not(:disabled) { background: rgba(21, 101, 192, 0.26); }
+
+/* Destructive, kept outlined so red stays reserved for the one primary action */
+.danger { background: transparent; color: var(--brand-red-light); border-color: rgba(239, 83, 80, 0.45); }
+.danger:hover:not(:disabled) { background: rgba(198, 40, 40, 0.16); border-color: var(--brand-red-light); }
+.dangerSolid { background: var(--brand-red); color: #fff; box-shadow: var(--shadow-glow-red); }
+.dangerSolid:hover:not(:disabled) { background: var(--brand-red-hover); }
+
+/* Icon buttons */
+.icon {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  transition: color 150ms var(--ease), background 150ms var(--ease);
+}
+.icon:hover:not(:disabled) { color: var(--text-primary); background: rgba(255, 255, 255, 0.06); }
+.iconRound { border-radius: var(--radius-pill); background: var(--bg-royal); color: var(--accent-blue); box-shadow: var(--shadow-raised); }
+.iconRound:hover:not(:disabled) { background: #0a2f7d; color: var(--accent-blue-light); }
+.iconActive { color: var(--accent-blue-light); background: rgba(21, 101, 192, 0.18); }

@@ -1,0 +1,13 @@
+.card { border-radius: var(--radius-lg); border: 1px solid transparent; min-width: 0; }
+.padded { padding: 24px; }
+
+.bento { background: var(--grad-card); border-color: var(--border-royal); }
+.royal { background: var(--bg-royal); border-color: var(--border-royal); box-shadow: var(--shadow-raised); }
+.neutral { background: var(--bg-card); border-color: var(--border-card); }
+.panel { background: var(--bg-panel); border-color: var(--border-card); }
+
+.interactive { transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease); }
+.interactive:hover { border-color: var(--accent-blue-light); }
+.selected { border-color: var(--accent-blue-light); box-shadow: 0 0 0 1px rgba(61, 127, 204, 0.5), 0 0 24px rgba(21, 101, 192, 0.25); }
+
+.title { font-size: 16px; font-weight: 600; color: var(--text-primary); }

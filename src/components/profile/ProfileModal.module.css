@@ -1,0 +1,18 @@
+.hero { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.heroText { min-width: 0; }
+.name { font-size: 20px; font-weight: 700; color: #fff; }
+.role { margin-top: 2px; font-size: 14px; color: var(--text-secondary); }
+.heroTags { display: flex; gap: 8px; margin-top: 8px; }
+.you { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+
+.details { display: grid; grid-template-columns: 140px 1fr; gap: 0; border-top: 1px solid var(--border-grid); }
+.details dt, .details dd { margin: 0; padding: 12px 0; border-bottom: 1px solid var(--border-grid); font-size: 14px; }
+.details dt { color: var(--text-secondary); font-size: 13px; }
+.details dd { color: var(--text-primary); font-weight: 500; }
+.muted { color: var(--text-muted); font-weight: 400; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 3px 10px; border-radius: var(--radius-pill); background: rgba(21, 101, 192, 0.18); color: var(--accent-blue-text); font-size: 12px; font-weight: 600; }
+
+.editHero { display: flex; align-items: center; gap: 16px; padding-bottom: 4px; }
+.editHeroNote { font-size: 12px; color: var(--text-muted); line-height: 1.5; }

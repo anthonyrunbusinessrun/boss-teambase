@@ -1,0 +1,78 @@
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  width: var(--sidebar-w);
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-sidebar);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  height: var(--header-h);
+  padding: 0 24px;
+  flex-shrink: 0;
+}
+.brand img { display: block; width: 166px; height: auto; }
+
+.nav { display: flex; flex-direction: column; gap: 8px; padding: 30px 24px 0; }
+
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 48px;
+  padding: 0 14px 0 16px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: background 150ms var(--ease), color 150ms var(--ease), box-shadow 150ms var(--ease);
+}
+.item svg { flex-shrink: 0; color: var(--accent-blue); transition: color 150ms var(--ease); }
+.label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item:hover { background: rgba(21, 101, 192, 0.12); color: #fff; }
+.active, .active:hover { background: var(--brand-red); color: #fff; box-shadow: var(--shadow-glow-red); }
+.active svg, .active:hover svg { color: #fff; }
+
+.badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-orange);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Footer meter — directly below the nav, as in the screens */
+.meter { margin: 60px 24px 24px; padding-top: 24px; border-top: 1px solid var(--border-grid); }
+.meterRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.meterLabel { color: var(--text-secondary); }
+.meterValue { font-weight: 700; color: #fff; }
+.meterRed { color: var(--brand-red-light); }
+.meterBar { margin-top: 12px; }
+
+/* Narrow screens: the sidebar becomes an icon rail (labels move to tooltips) */
+@media (max-width: 1024px) {
+  .sidebar { width: 72px; }
+  .brand { justify-content: center; padding: 0; }
+  .brand img { display: none; }
+  .brandMark { display: block !important; }
+  .nav { padding: 20px 12px 0; }
+  .item { justify-content: center; padding: 0; }
+  .label { display: none; }
+  .badge { position: absolute; top: 4px; right: 4px; min-width: 16px; height: 16px; font-size: 10px; padding: 0 4px; }
+  .meter { display: none; }
+}
+.brandMark { display: none; font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.04em; }
+.brandMark i { color: #ff1a1a; font-style: normal; }

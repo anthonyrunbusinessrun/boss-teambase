@@ -1,0 +1,186 @@
+/* ==========================================================================
+   BOSS Teambase — global tokens + base styles
+   Source of truth: Teambase-design-system.md (§10 CSS tokens)
+   ========================================================================== */
+
+:root {
+  /* Surfaces */
+  --bg-app: #0b1020;
+  --bg-panel: #05102a;
+  --bg-card: #0b1424;
+  --bg-royal: #002468;
+  --bg-royal-deep: #021d51;
+  --bg-hover: #0f3b81;
+
+  /* Borders */
+  --border-card: #0b254c;
+  --border-royal: rgba(21, 101, 192, 0.35);
+  --border-grid: #172a48;
+  --border-sidebar: #1565c0;
+
+  /* Brand and accents */
+  --brand-red: #c62828;
+  --brand-red-hover: #d32f2f;
+  --brand-red-light: #ef5350;
+  --accent-blue: #1565c0;
+  --accent-blue-light: #3d7fcc;
+  --accent-blue-text: #4a90e2;
+  --accent-orange: #f97316;
+  --accent-amber: #dd871e;
+  --accent-amber-bg: #ffe8c2;
+
+  /* Text */
+  --text-primary: #ffffff;
+  --text-body: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  /* Status */
+  --presence-online: #2e7d32;
+  --presence-offline: #94a3b8;
+
+  /* Gradients */
+  --grad-card: linear-gradient(135deg, #021d51 0%, #05102a 100%);
+  --glow-page: radial-gradient(60% 120px at 20% 0, rgba(21, 101, 192, 0.35), transparent);
+
+  /* Type */
+  --font-sans: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", "Inter", -apple-system, "Segoe UI", sans-serif;
+
+  /* Shape */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Elevation */
+  --shadow-raised: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-glow-red: 0 4px 14px rgba(198, 40, 40, 0.45);
+
+  /* Layout */
+  --sidebar-w: 214px; /* measured: sidebar border at x=213 in the 1440px designs (doc says ~192) */
+  --header-h: 72px;  /* measured: header border at y=71 (doc says ~64) */
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, p { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+a { color: inherit; text-decoration: none; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+button:disabled { cursor: not-allowed; }
+
+input, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+::selection { background: rgba(21, 101, 192, 0.55); color: #fff; }
+
+/* Focus ring — design system §8: 2px accent-blue-light at 70%, 2px offset */
+:focus-visible {
+  outline: 2px solid rgba(61, 127, 204, 0.7);
+  outline-offset: 2px;
+}
+
+/* Dark scrollbars */
+* { scrollbar-width: thin; scrollbar-color: #1b3a6b transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #16315d; border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: #1e4687; background-clip: content-box; border: 2px solid transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Respect reduced motion — OS setting or the in-app Appearance preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+html[data-reduce-motion="true"] *,
+html[data-reduce-motion="true"] *::before,
+html[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Micro-label (design system §3): 10px / 600 / uppercase / +0.06em */
+.micro-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Section label inside panels: 11px uppercase muted */
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Print — "Export PDF" prints only the live template preview sheet, on paper
+   ========================================================================== */
+@media print {
+  @page { margin: 16mm; }
+  html, body { background: #fff !important; }
+  body * { visibility: hidden !important; }
+  #print-sheet, #print-sheet * { visibility: visible !important; }
+  #print-sheet {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    background: #fff !important;
+    color: #0b1020 !important;
+    border: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  #print-sheet * { color: #0b1020 !important; background: transparent !important; border-color: #cbd5e1 !important; }
+  #print-sheet [data-print-heading] { color: #1565c0 !important; }
+}
