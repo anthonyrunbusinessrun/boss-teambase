@@ -1,16 +1,17 @@
-import { CURRENT_USER_ID, getDb, makeInitials, wouldCreateCycle } from "@/server/db";
+import { getDb, makeInitials, wouldCreateCycle } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, { params }: Ctx) {
+export const GET = authed<Ctx>(async (_req: Request, { params }: Ctx) => {
   const { id } = await params;
   const m = getDb().members.find((x) => x.id === id);
   return m ? ok(m) : fail("Member not found", 404);
-}
+});
 
-export async function PATCH(req: Request, { params }: Ctx) {
+export const PATCH = authed<Ctx>(async (req: Request, { params }: Ctx) => {
   const { id } = await params;
   const db = getDb();
   const m = db.members.find((x) => x.id === id);
@@ -41,18 +42,19 @@ export async function PATCH(req: Request, { params }: Ctx) {
     m.managerId = next;
   }
   return ok(m);
-}
+});
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export const DELETE = authed<Ctx>(async (_req: Request, { params }: Ctx, me) => {
   const { id } = await params;
   const db = getDb();
   const idx = db.members.findIndex((x) => x.id === id);
   if (idx < 0) return fail("Member not found", 404);
-  if (id === CURRENT_USER_ID) return fail("You can't remove your own profile");
+  if (id === me.id) return fail("You can't remove your own profile");
   const [removed] = db.members.splice(idx, 1);
+  db.accounts = db.accounts.filter((a) => a.memberId !== id);
   // Keep the org chart connected: direct reports move up to the removed member's manager.
   for (const m of db.members) if (m.managerId === id) m.managerId = removed.managerId;
   for (const t of db.tasks) if (t.assigneeId === id) t.assigneeId = null;
   for (const c of db.conversations) c.memberIds = c.memberIds.filter((x) => x !== id);
   return ok({ id });
-}
+});

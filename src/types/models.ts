@@ -223,6 +223,8 @@ export interface Settings {
 
 export interface Session {
   userId: ID;
+  /** Work email of the signed-in account. */
+  email: string;
 }
 
 /* ----------------------------- Search ----------------------------- */

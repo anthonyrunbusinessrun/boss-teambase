@@ -1,11 +1,12 @@
 import { getDb, resolveMessage } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string; mid: string }> };
 
 /** POST { emoji } — toggles the current user's reaction. */
-export async function POST(req: Request, { params }: Ctx) {
+export const POST = authed<Ctx>(async (req: Request, { params }: Ctx) => {
   const { id, mid } = await params;
   const db = getDb();
   const msg = (db.messages[id] ?? []).find((m) => m.id === mid);
@@ -26,4 +27,4 @@ export async function POST(req: Request, { params }: Ctx) {
     existing.count += 1;
   }
   return ok(resolveMessage(db, msg));
-}
+});

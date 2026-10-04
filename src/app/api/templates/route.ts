@@ -1,15 +1,16 @@
 import { getDb, logActivity, newId } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
 import type { ReportTemplate } from "@/types/models";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = authed(async () => {
   return ok(getDb().templates);
-}
+});
 
 /** POST { name, description?, fileName? } — "Upload Report" adds a custom template. */
-export async function POST(req: Request) {
+export const POST = authed(async (req: Request, _ctx, me) => {
   const body = await readJson(req);
   if (!body) return fail("Invalid request body");
   const name = str(body.name);
@@ -30,6 +31,6 @@ export async function POST(req: Request) {
     ],
   };
   db.templates.unshift(tpl);
-  logActivity(db, { text: "uploaded a report:", object: name, objectHref: `/reports?template=${tpl.id}`, objectTone: "strong" });
+  logActivity(db, me, { text: "uploaded a report:", object: name, objectHref: `/reports?template=${tpl.id}`, objectTone: "strong" });
   return ok(tpl, 201);
-}
+});

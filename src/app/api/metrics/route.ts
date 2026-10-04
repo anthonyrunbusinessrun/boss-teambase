@@ -1,6 +1,7 @@
 import { getDb } from "@/server/db";
 import { ok } from "@/server/http";
 import type { WeeklyMetric } from "@/types/models";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ const BASE = { todo: 12, inProgress: 8, done: 15, completed: 94 };
 const SEED_OPEN = 3; // backlog + to do in the seed board
 const SEED_IN_PROGRESS = 1;
 
-export async function GET() {
+export const GET = authed(async () => {
   const { tasks } = getDb();
   const open = tasks.filter((t) => t.status === "backlog" || t.status === "todo").length;
   const inProgress = tasks.filter((t) => t.status === "in-progress").length;
@@ -21,4 +22,4 @@ export async function GET() {
     { key: "completed", label: "Completed this Week", value: BASE.completed, delta: 8, percent: true },
   ];
   return ok(metrics);
-}
+});

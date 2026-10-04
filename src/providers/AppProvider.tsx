@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ErrorState, LoadingState } from "@/components/shared/States";
-import { channelService, errorMessage, memberService, sessionService, settingsService } from "@/services";
+import { ApiError, channelService, errorMessage, memberService, sessionService, settingsService } from "@/services";
 import { getZone, type ZoneDef } from "@/lib/zones";
 import type { ID, Settings, TeamMember } from "@/types/models";
 
@@ -10,6 +10,8 @@ type SettingsChanges = Parameters<typeof settingsService.update>[0];
 
 interface AppContextValue {
   me: TeamMember;
+  /** Work email of the signed-in account. */
+  email: string;
   members: TeamMember[];
   settings: Settings;
   primaryZone: ZoneDef;
@@ -32,6 +34,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 interface Bootstrap {
   userId: ID;
+  email: string;
   members: TeamMember[];
   settings: Settings;
   unread: number;
@@ -51,10 +54,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         settingsService.get(),
         channelService.list(),
       ]);
-      setBoot({ userId: session.userId, members, settings, unread: convos.unreadTotal });
+      setBoot({ userId: session.userId, email: session.email, members, settings, unread: convos.unreadTotal });
       setError(null);
     } catch (e) {
-      setError(errorMessage(e));
+      if (!(e instanceof ApiError && e.status === 401)) setError(errorMessage(e)); // 401 → already redirecting to /signin
     }
   }, []);
 
@@ -62,14 +65,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     Promise.all([sessionService.get(), memberService.list(), settingsService.get(), channelService.list()])
       .then(([session, members, settings, convos]) => {
-        if (!cancelled) setBoot({ userId: session.userId, members, settings, unread: convos.unreadTotal });
+        if (!cancelled) setBoot({ userId: session.userId, email: session.email, members, settings, unread: convos.unreadTotal });
       })
       .catch((e) => {
-        if (!cancelled) setError(errorMessage(e));
+        if (!cancelled && !(e instanceof ApiError && e.status === 401)) setError(errorMessage(e));
       });
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Browsers can restore a page from the back/forward cache without reloading it. If the user signed out meanwhile,
+  // re-check the session so a stale copy of the app never lingers on screen (a 401 sends them to /signin).
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) sessionService.get().catch(() => undefined);
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
   }, []);
 
   const motion = boot?.settings.reduceMotion;
@@ -98,6 +111,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const me = boot.members.find((m) => m.id === boot.userId) ?? boot.members[0];
     return {
       me,
+      email: boot.email,
       members: boot.members,
       settings: boot.settings,
       primaryZone: getZone(boot.settings.primaryZoneId),

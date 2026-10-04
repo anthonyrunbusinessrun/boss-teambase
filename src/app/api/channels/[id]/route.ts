@@ -1,11 +1,12 @@
 import { getDb, resolveConversation, resolveMessage } from "@/server/db";
 import { fail, ok, readJson } from "@/server/http";
 import type { ConversationDetail } from "@/types/models";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, { params }: Ctx) {
+export const GET = authed<Ctx>(async (_req: Request, { params }: Ctx) => {
   const { id } = await params;
   const db = getDb();
   const c = db.conversations.find((x) => x.id === id);
@@ -16,10 +17,10 @@ export async function GET(_req: Request, { params }: Ctx) {
     members: db.members.filter((m) => c.memberIds.includes(m.id)),
   };
   return ok(detail);
-}
+});
 
 /** PATCH { favorite?: boolean, read?: true } */
-export async function PATCH(req: Request, { params }: Ctx) {
+export const PATCH = authed<Ctx>(async (req: Request, { params }: Ctx) => {
   const { id } = await params;
   const db = getDb();
   const c = db.conversations.find((x) => x.id === id);
@@ -33,4 +34,4 @@ export async function PATCH(req: Request, { params }: Ctx) {
     for (const n of db.notifications) if (n.href.includes(`c=${id}`)) n.read = true;
   }
   return ok(resolveConversation(db, c));
-}
+});

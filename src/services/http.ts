@@ -3,7 +3,23 @@
  * Everything under /services goes through `request`, so pointing the app at a real
  * backend later means changing API_BASE (or this file) — not the components.
  */
+import { safeNextPath } from "@/lib/safe-next";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
+
+let redirecting = false;
+
+/** The session ended (expired, signed out elsewhere, account removed): go to sign-in and come back afterwards. */
+function sendToSignIn() {
+  if (typeof window === "undefined" || redirecting) return;
+  if (window.location.pathname.startsWith("/signin")) return;
+  redirecting = true;
+  const url = new URL("/signin", window.location.origin);
+  url.searchParams.set("reason", "expired");
+  const next = safeNextPath(window.location.pathname + window.location.search);
+  if (next !== "/") url.searchParams.set("next", next);
+  window.location.assign(url.toString());
+}
 
 export class ApiError extends Error {
   constructor(
@@ -28,6 +44,7 @@ export async function request<T>(path: string, init: RequestInit & { json?: unkn
   } catch {
     throw new ApiError("Can't reach the server. Check your connection and try again.", 0);
   }
+  if (res.status === 401 && !path.startsWith("/auth/")) sendToSignIn();
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
     try {

@@ -1,12 +1,13 @@
 import { getDb } from "@/server/db";
 import { ok } from "@/server/http";
 import type { SearchResult } from "@/types/models";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
 const has = (q: string, ...fields: Array<string | undefined>) => fields.some((f) => f?.toLowerCase().includes(q));
 
-export async function GET(req: Request) {
+export const GET = authed(async (req: Request) => {
   const q = (new URL(req.url).searchParams.get("q") ?? "").trim().toLowerCase();
   if (!q) return ok<SearchResult[]>([]);
   const db = getDb();
@@ -38,4 +39,4 @@ export async function GET(req: Request) {
     .forEach((t) => out.push({ id: t.id, group: "Reports", title: t.name, subtitle: t.description, href: `/reports?template=${t.id}` }));
 
   return ok(out);
-}
+});

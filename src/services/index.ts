@@ -24,8 +24,13 @@ import type {
 
 export { ApiError, errorMessage } from "./http";
 
-/* Session & settings */
+/* Session & authentication */
 export const sessionService = { get: () => get<Session>("/session") };
+
+export const authService = {
+  login: (email: string) => post<Session>("/auth/login", { email }),
+  logout: () => post<{ ok: true }>("/auth/logout"),
+};
 
 export const settingsService = {
   get: () => get<Settings>("/settings"),

@@ -26,11 +26,21 @@ import type {
   TeamMember,
 } from "@/types/models";
 
-export const CURRENT_USER_ID: ID = "m-stad";
 const SEED_ZONE = "Asia/Manila";
+
+/**
+ * Who may sign in: a work email mapped to a team member. Kept apart from `TeamMember` so emails stay out of the
+ * public member API. Accounts are provisioned by an administrator — the app has no sign-up.
+ */
+export interface Account {
+  memberId: ID;
+  /** Work email, lower-case. */
+  email: string;
+}
 
 export interface Db {
   members: TeamMember[];
+  accounts: Account[];
   tasks: Task[];
   events: CalendarEvent[];
   conversations: Conversation[];
@@ -78,6 +88,11 @@ function seed(): Db {
     member("m-shiela", "Shiela", "Marketing", "Marketing", "SH", "active", "m-ray"),
     member("m-benj", "Benj", "Sales", "Sales", "BE", "active", "m-ray"),
   ];
+
+  const accounts: Account[] = members.map((m) => ({
+    memberId: m.id,
+    email: `${m.name.split(" ")[0].toLowerCase()}@teambase.test`,
+  }));
 
   const task = (
     n: number,
@@ -352,6 +367,7 @@ function seed(): Db {
 
   return {
     members,
+    accounts,
     tasks,
     events,
     conversations,
@@ -381,12 +397,7 @@ export function getDb(): Db {
 
 /* ------------------------------ helpers ------------------------------ */
 
-export function currentUser(db: Db): TeamMember {
-  return db.members.find((m) => m.id === CURRENT_USER_ID) ?? db.members[0];
-}
-
-export function logActivity(db: Db, item: Omit<ActivityItem, "id" | "at" | "actor"> & { actor?: ActivityItem["actor"] }) {
-  const me = currentUser(db);
+export function logActivity(db: Db, me: TeamMember, item: Omit<ActivityItem, "id" | "at" | "actor"> & { actor?: ActivityItem["actor"] }) {
   db.activity.unshift({
     id: newId("a"),
     at: new Date().toISOString(),

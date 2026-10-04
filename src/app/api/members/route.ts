@@ -1,14 +1,15 @@
 import { getDb, makeInitials, newId } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
 import type { TeamMember } from "@/types/models";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = authed(async () => {
   return ok(getDb().members);
-}
+});
 
-export async function POST(req: Request) {
+export const POST = authed(async (req: Request) => {
   const body = await readJson(req);
   if (!body) return fail("Invalid request body");
   const name = str(body.name);
@@ -34,4 +35,4 @@ export async function POST(req: Request) {
   };
   db.members.push(member);
   return ok(member, 201);
-}
+});

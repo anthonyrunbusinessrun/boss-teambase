@@ -1,11 +1,12 @@
 import { getDb, newId, resolveConversation } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
 import type { Conversation } from "@/types/models";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
 /** POST { memberId } — finds or creates a direct message with a team member. */
-export async function POST(req: Request) {
+export const POST = authed(async (req: Request) => {
   const body = await readJson(req);
   const memberId = str(body?.memberId);
   const db = getDb();
@@ -29,4 +30,4 @@ export async function POST(req: Request) {
     convo = created;
   }
   return ok(resolveConversation(db, convo));
-}
+});

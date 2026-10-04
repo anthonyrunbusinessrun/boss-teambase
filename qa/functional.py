@@ -1,5 +1,6 @@
 """Functional QA for BOSS Teambase — drives a real browser against the production build."""
-import re, sys, json, traceback, os
+import re, sys, json, traceback, os, base64, time
+from urllib.parse import urlparse
 os.makedirs("qa/failures", exist_ok=True)
 from playwright.sync_api import sync_playwright, expect
 
@@ -27,6 +28,13 @@ def nav(label): return page.locator('nav[aria-label="Primary"]').get_by_role("li
 def goto(path):
     page.goto(BASE + path, wait_until="networkidle")
 
+def signin(pg, who=None, enter=False):
+    """Sign in through the real form. The email is pre-filled with the default account; pass `who`
+    (a first name like "joseph", or a full email) to enter as someone else. There is no password."""
+    if who: pg.get_by_label("Work email").fill(who if "@" in who else f"{who}@teambase.test")
+    if enter: pg.get_by_label("Work email").press("Enter")
+    else: pg.get_by_role("button", name="Sign in").click()
+
 with sync_playwright() as p:
     browser = p.chromium.launch(args=["--no-sandbox"])
     ctx = browser.new_context(viewport={"width": 1440, "height": 1024})
@@ -34,6 +42,127 @@ with sync_playwright() as p:
     page.set_default_timeout(7000)
     page.on("console", lambda m: CONSOLE.append((m.type, m.text[:200])) if m.type in ("error", "warning") else None)
     page.on("pageerror", lambda e: CONSOLE.append(("pageerror", str(e)[:200])))
+
+
+    def fresh(width=1440, height=1024):
+        c = browser.new_context(viewport={"width": width, "height": height}); p = c.new_page(); p.set_default_timeout(7000); return c, p
+    FORGED = base64.urlsafe_b64encode(json.dumps({"uid": "m-ray", "iat": int(time.time()), "exp": int(time.time()) + 9999}).encode()).decode().rstrip("=") + ".AAAA"
+    login_calls = []
+    anon, ap = fresh()
+    ap.on("request", lambda r: login_calls.append(r.url) if r.url.endswith("/api/auth/login") else None)
+
+    print("\n== AUTHENTICATION — signed out ==")
+    @step("signed-out page request → /signin, remembering where you were going")
+    def _():
+        ap.goto(BASE + "/team", wait_until="networkidle"); assert re.search(r"/signin\?next=%2Fteam$", ap.url), ap.url
+        expect(ap.get_by_role("heading", name="Sign in")).to_be_visible()
+    @step("signed-out root → plain /signin")
+    def _():
+        ap.goto(BASE + "/", wait_until="networkidle"); assert ap.url == BASE + "/signin", ap.url
+    @step("every data API answers 401 JSON when signed out (reads and writes)")
+    def _():
+        for path in ["/api/members", "/api/tasks", "/api/events", "/api/channels", "/api/session", "/api/search?q=a", "/api/settings", "/api/notifications", "/api/templates", "/api/metrics", "/api/activity", "/api/system", "/api/drafts"]:
+            r = anon.request.get(BASE + path); assert r.status == 401 and "error" in r.json(), (path, r.status)
+        assert anon.request.post(BASE + "/api/tasks", data={"title": "x"}).status == 401
+        assert anon.request.delete(BASE + "/api/members/m-ray").status == 401
+        assert anon.request.patch(BASE + "/api/settings", data={"reduceMotion": True}).status == 401
+    @step("public brand assets still load while signed out")
+    def _():
+        assert anon.request.get(BASE + "/brand/teambase-wordmark.png").status == 200
+    @step("there is no sign-up — no link, no endpoint")
+    def _():
+        ap.goto(BASE + "/signin", wait_until="networkidle")
+        for t in ["sign up", "create account", "create an account", "register", "join"]: expect(ap.get_by_text(re.compile(t, re.I))).to_have_count(0)
+        expect(ap.get_by_text("Ask your workspace administrator.")).to_be_visible()
+        assert anon.request.post(BASE + "/api/auth/register", data={}).status == 404
+    @step("there is no password anywhere on the sign-in page")
+    def _():
+        ap.goto(BASE + "/signin", wait_until="networkidle")
+        assert ap.locator("input[type=password]").count() == 0; expect(ap.get_by_text(re.compile("password", re.I))).to_have_count(0)
+    @step("email is pre-filled with the default account and focused on load")
+    def _():
+        expect(ap.get_by_label("Work email")).to_have_value("stad@teambase.test"); expect(ap.get_by_label("Work email")).to_be_focused()
+        expect(ap.get_by_label("Work email")).to_have_attribute("autocomplete", "username")
+    @step("clearing the email and submitting shows an error and sends nothing")
+    def _():
+        ap.get_by_label("Work email").fill(""); ap.get_by_role("button", name="Sign in").click()
+        expect(ap.get_by_text("Enter your work email.")).to_be_visible(); expect(ap.get_by_label("Work email")).to_be_focused(); assert not login_calls, login_calls
+    @step("malformed email is caught client-side, no request")
+    def _():
+        ap.get_by_label("Work email").fill("not-an-email"); ap.get_by_role("button", name="Sign in").click()
+        expect(ap.get_by_text(re.compile("Enter a valid email address"))).to_be_visible(); assert not login_calls, login_calls
+    @step("unknown email → clear message; the field is kept and selected; no session is created")
+    def _():
+        signin(ap, "nobody")
+        expect(ap.get_by_text(re.compile("couldn't find an account for that email"))).to_be_visible()
+        assert ap.get_by_label("Work email").input_value() == "nobody@teambase.test"; assert len(login_calls) == 1
+        assert not any(x["name"] == "teambase_session" for x in anon.cookies())
+    @step("login endpoint validates input (empty 400, unknown 401, oversized 400)")
+    def _():
+        assert anon.request.post(BASE + "/api/auth/login", data={}).status == 400
+        assert anon.request.post(BASE + "/api/auth/login", data={"email": "nobody@teambase.test"}).status == 401
+        assert anon.request.post(BASE + "/api/auth/login", data={"email": "a" * 300 + "@x.test"}).status == 400
+    @step("sign-in notices: signed-out and expired")
+    def _():
+        ap.goto(BASE + "/signin?reason=signed-out", wait_until="networkidle"); expect(ap.get_by_text("You've been signed out.")).to_be_visible()
+        ap.goto(BASE + "/signin?reason=expired", wait_until="networkidle"); expect(ap.get_by_text(re.compile("Your session ended"))).to_be_visible()
+    anon.close()
+
+    @step("open-redirect guard: ?next=https://evil.example is ignored")
+    def _():
+        c, p = fresh(); p.goto(BASE + "/signin?next=https%3A%2F%2Fevil.example", wait_until="networkidle"); signin(p, "andrea")
+        p.wait_for_url(BASE + "/"); assert urlparse(p.url).netloc == urlparse(BASE).netloc; c.close()
+    @step("open-redirect guard: protocol-relative ?next=//evil.example is ignored")
+    def _():
+        c, p = fresh(); p.goto(BASE + "/signin?next=%2F%2Fevil.example", wait_until="networkidle"); signin(p, "andrea")
+        p.wait_for_url(BASE + "/"); c.close()
+    @step("sign in as Joseph → lands on the page you wanted; 'me' follows the session")
+    def _():
+        c, p = fresh(); p.goto(BASE + "/team", wait_until="networkidle"); p.wait_for_url(re.compile(r"/signin\?next=%2Fteam$"))
+        signin(p, "joseph", enter=True); p.wait_for_url(BASE + "/team")
+        expect(p.get_by_role("button", name=re.compile(r"^Joseph Anthony")).first).to_be_visible()
+        joseph = p.get_by_role("article").filter(has_text="Joseph Anthony")
+        expect(joseph.get_by_role("button", name="Chat")).to_be_disabled()            # can't DM yourself — it's *Joseph's* session
+        expect(p.get_by_role("article").filter(has_text="Stad Osuyos").get_by_role("button", name="Chat")).to_be_enabled()
+        joseph.get_by_role("button", name="Profile").click(); expect(p.get_by_role("button", name="Delete member")).to_have_count(0); p.keyboard.press("Escape")
+        r = c.request.delete(BASE + "/api/members/m-joseph"); assert r.status == 400 and "own profile" in r.json()["error"], (r.status, r.text())
+        c.close()
+    @step("session cookie: HttpOnly, SameSite=Lax, invisible to page scripts; /signin bounces a signed-in user home")
+    def _():
+        c, p = fresh(); p.goto(BASE + "/signin", wait_until="networkidle"); signin(p, "benj"); p.wait_for_url(BASE + "/")
+        ck = next(x for x in c.cookies() if x["name"] == "teambase_session"); assert ck["httpOnly"] and ck["sameSite"] == "Lax" and ck["path"] == "/", ck
+        assert ck["expires"] - time.time() < 12 * 3600 + 120 and ck["expires"] - time.time() > 11 * 3600, "expires ~12h"
+        assert "teambase_session" not in p.evaluate("document.cookie")
+        p.goto(BASE + "/signin", wait_until="networkidle"); assert p.url == BASE + "/", p.url
+        c.close()
+    @step("forged cookie (valid-looking payload, bad signature) can't read any data")
+    def _():
+        c, _p = fresh(); c.add_cookies([{"name": "teambase_session", "value": FORGED, "url": BASE}])
+        r = c.request.get(BASE + "/api/members"); assert r.status == 401, r.status; c.close()
+    @step("forged cookie on a page → sent to sign-in once, cookie cleared, no redirect loop")
+    def _():
+        c, p = fresh(); c.add_cookies([{"name": "teambase_session", "value": FORGED, "url": BASE}])
+        p.goto(BASE + "/team"); p.wait_for_url(re.compile(r"/signin\?reason=expired&next=%2Fteam"), timeout=15000)
+        expect(p.get_by_text(re.compile("Your session ended"))).to_be_visible(); p.wait_for_timeout(1500)
+        assert "/signin" in p.url, p.url; assert not any(x["name"] == "teambase_session" for x in c.cookies()); c.close()
+    @step("cross-origin sign-in attempt is refused")
+    def _():
+        r = ctx.request.post(BASE + "/api/auth/login", data={"email": "stad@teambase.test"}, headers={"Origin": "https://evil.example"}); assert r.status == 403, r.status
+
+    @step("Enter key signs in; the email is trimmed and case-insensitive")
+    def _():
+        c, p = fresh(); p.goto(BASE + "/signin", wait_until="networkidle"); p.get_by_label("Work email").fill("  Ray@Teambase.TEST  "); p.get_by_label("Work email").press("Enter")
+        p.wait_for_url(BASE + "/"); expect(p.get_by_role("button", name=re.compile(r"^Ray Land")).first).to_be_visible(); c.close()
+
+    print("\n== AUTHENTICATION — main session ==")
+    @step("one click on Sign in (pre-filled email) goes straight in as Stad Osuyos")
+    def _():
+        page.goto(BASE + "/", wait_until="networkidle"); page.wait_for_url(re.compile(r"/signin$")); signin(page)
+        page.wait_for_url(BASE + "/"); expect(page.get_by_role("heading", level=1)).to_have_text("Dashboard"); expect(page.get_by_text(re.compile(r"^Good (Morning|Afternoon|Evening), Stad Osuyos$"))).to_be_visible()
+    @step("user menu shows the signed-in account and a Sign out action")
+    def _():
+        page.get_by_role("button", name=re.compile("Stad Osuyos")).click(); expect(page.get_by_text("stad@teambase.test")).to_be_visible()
+        expect(page.get_by_role("menuitem", name="Sign out")).to_be_visible(); page.keyboard.press("Escape")
 
     print("\n== NAVIGATION ==")
     goto("/")
@@ -205,11 +334,12 @@ with sync_playwright() as p:
         d.get_by_role("button", name="Add event").click(); expect(d.get_by_text("Enter a title for the event.")).to_be_visible()
         d.get_by_label("Title").fill("QA event"); d.get_by_label("Starts").fill("14:00"); d.get_by_label("Ends").fill("13:00")
         d.get_by_role("button", name="Add event").click(); expect(d.get_by_text("End time must be after the start time.")).to_be_visible()
-    @step("Add Event saves; busy day shows '+1 more' → Day view lists it")
+    @step("Add Event saves; a busy day shows '+N more' → Day view lists it")
     def _():
         d = dialog("Add event"); d.get_by_label("Ends").fill("15:00"); d.get_by_role("button", name="Add event").click()
         expect(toast("Event added")).to_be_visible()
-        page.get_by_role("button", name=re.compile(r"^\+1 more")).click()               # today already has 2 chips; cap is 2
+        today = page.get_by_role("gridcell").filter(has=page.get_by_role("img", name="Today"))
+        today.get_by_role("button", name=re.compile(r"^\+\d+ more")).click()           # the grid caps a day at 2 chips; the rest sit behind "+N more"
         expect(page.get_by_role("tab", name="Day")).to_have_attribute("aria-selected", "true")
         expect(page.get_by_role("button", name=re.compile("QA event"))).to_be_visible()
     @step("click event → edit → save")
@@ -526,6 +656,35 @@ with sync_playwright() as p:
         for name in [re.compile(r"^Notifications"), re.compile(r"Stad Osuyos")]:
             bb = page.get_by_role("button", name=name).first.bounding_box(); assert bb and bb["x"] + bb["width"] <= 390, (name, bb)
     page.set_viewport_size({"width": 1440, "height": 1024})
+
+    print("\n== AUTHENTICATION — sign out, expiry ==")
+    @step("Sign out → /signin with notice; app pages and API are locked again")
+    def _():
+        goto("/"); page.get_by_role("button", name=re.compile("Stad Osuyos")).click(); page.get_by_role("menuitem", name="Sign out").click()
+        page.wait_for_url(re.compile(r"/signin\?reason=signed-out")); expect(page.get_by_text("You've been signed out.")).to_be_visible()
+        assert ctx.request.get(BASE + "/api/session").status == 401
+        page.goto(BASE + "/channels"); page.wait_for_url(re.compile(r"/signin\?next=%2Fchannels"))
+    @step("signing back in returns you to where you were headed")
+    def _():
+        signin(page); page.wait_for_url(BASE + "/channels"); expect(page.get_by_role("heading", name="# announcements")).to_be_visible()
+    @step("session ends mid-use → the next save redirects to sign-in, then back to the same page")
+    def _():
+        goto("/actions"); ctx.clear_cookies(); page.get_by_role("button", name="Create Task").click()
+        d = dialog("Create task"); d.get_by_label("Title").fill("session lost"); d.get_by_role("button", name="Create task").click()
+        page.wait_for_url(re.compile(r"/signin\?reason=expired&next=%2Factions")); expect(page.get_by_text(re.compile("Your session ended"))).to_be_visible()
+        signin(page); page.wait_for_url(BASE + "/actions"); expect(page.get_by_role("button", name="Create Task")).to_be_visible()
+        expect(page.get_by_role("button", name=re.compile("session lost"))).to_have_count(0)      # the rejected save was not applied
+    @step("a page restored from history re-checks the session (back/forward cache)")
+    def _():
+        goto("/"); ctx.clear_cookies()
+        page.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))")
+        page.wait_for_url(re.compile(r"/signin\?reason=expired")); signin(page); page.wait_for_url(BASE + "/")
+    for w in (390, 360, 320):
+        @step(f"sign-in page fits a {w}px phone (no horizontal scroll)")
+        def _(w=w):
+            c, p = fresh(w, 740); p.goto(BASE + "/signin", wait_until="networkidle")
+            sw = p.evaluate("document.documentElement.scrollWidth"); assert sw <= w, (sw, w)
+            expect(p.get_by_role("button", name="Sign in")).to_be_visible(); c.close()
 
     browser.close()
 

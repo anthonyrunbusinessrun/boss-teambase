@@ -1,0 +1,53 @@
+.page {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: start; /* top-aligned, so an error banner pushes content down instead of re-centering it */
+  min-height: 100vh;
+  padding: max(40px, 14vh) 20px 40px;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+/* Soft blue glow from the top, as under the app header (design §2.5) */
+.glow {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 460px;
+  background: radial-gradient(55% 100% at 50% 0%, rgba(21, 101, 192, 0.42), transparent);
+  pointer-events: none;
+}
+.column { position: relative; display: flex; flex-direction: column; gap: 28px; width: 100%; max-width: 420px; }
+.brand { display: flex; justify-content: center; }
+.brand img { display: block; width: 210px; height: auto; }
+
+.card { padding: 32px; box-shadow: var(--shadow-raised); }
+.title { font-size: 24px; font-weight: 700; line-height: 1.2; color: #fff; }
+.lead { margin-top: 6px; font-size: 14px; color: var(--text-secondary); }
+
+.notice {
+  margin-top: 20px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-royal);
+  border-radius: var(--radius-md);
+  background: rgba(21, 101, 192, 0.14);
+  font-size: 13px;
+  color: var(--text-body);
+}
+
+.form { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+/* Taller fields than in-app forms: this is the one input people always touch */
+.form .field { height: 44px; }
+.submit { margin-top: 4px; height: 44px; font-size: 14px; }
+
+.help { text-align: center; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+
+.clocks { display: flex; justify-content: center; gap: 24px; }
+.clock { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.clockTime { font-size: 14px; font-weight: 600; color: var(--text-body); font-variant-numeric: tabular-nums; }
+.clocks .clock + .clock { padding-left: 24px; border-left: 1px solid var(--border-grid); }
+
+@media (max-width: 480px) {
+  .page { padding-top: 32px; }
+  .card { padding: 24px 20px; }
+  .brand img { width: 180px; }
+}

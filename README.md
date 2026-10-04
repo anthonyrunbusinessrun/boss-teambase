@@ -17,7 +17,35 @@ npm run build && npm start
 
 Requires Node 20.9+ (Next.js 16). No database, environment variables or external services.
 
-> **Data resets when the server restarts.** The mock store lives in server memory (`src/server/db.ts`).
+## Signing in
+
+Teambase is an internal app: **there is no sign-up and no password**. Open the app and you land on `/signin`; click **Sign in** to go in.
+The work email is pre-filled with the default account (Stad Osuyos, the person the designs are drawn for), so one click is enough.
+Type another teammate's email to enter as them. Everything else — every page and every API route — requires being signed in;
+signed-out visitors are redirected to `/signin` and returned to the page they wanted.
+
+> **This is access, not security.** With no password, signing in only *selects who you are*; it proves nothing, and anyone who can
+> reach the app can sign in as anyone. That's fine for a prototype on a trusted network — don't put real data behind it or expose it
+> to the internet. To add real authentication, verify a password or SSO assertion in `src/app/api/auth/login/route.ts`; the session
+> cookie, `authed()` and the proxy that protect everything else stay as they are.
+
+Seeded accounts (mock data), one per team member, `<first name>@teambase.test`:
+
+| Account | Email |
+|---|---|
+| Stad Osuyos (UI/UX Designer) — the default | `stad@teambase.test` |
+| Ray Land (CEO) | `ray@teambase.test` |
+| Joseph Anthony (CTO) | `joseph@teambase.test` |
+| Ereika · Andrea · Shiela · Benj | `ereika@` · `andrea@` · `shiela@` · `benj@` `teambase.test` |
+
+Signing in as different people shows the app from their point of view (who "me" is in chat, availability, the "can't delete yourself"
+rule, the activity feed). Sign out is in the header user menu.
+
+| Setting | Purpose |
+|---|---|
+| `SESSION_SECRET` | Signs session cookies. Optional: if unset a random one is generated per server start (everyone is signed out on restart). |
+
+Copy `.env.example` to `.env.local` to set it. The default sign-in email lives in `src/config/auth.ts`.
 
 ## What's here
 
@@ -47,9 +75,22 @@ UI components  ──►  src/services  ──►  /api route handlers  ──�
 - `src/services/` — the **only** place the UI talks to the backend. Point `NEXT_PUBLIC_API_BASE` at another server, or edit `http.ts`.
 - `src/app/api/**` — Node route handlers with validation. They only call `getDb()` and its helpers.
 - `src/server/db.ts` — the **only** file that knows data is in memory. **Replace this file to add a real database.**
+- `src/server/auth.ts` — session tokens and `authed()`, which wraps every API route. `src/config/auth.ts` — the default sign-in email.
+- `src/proxy.ts` — redirects signed-out visitors (an optimistic cookie check only; see below).
 - `src/components/` — `buttons`, `cards`, `forms`, `modals`, `header`, `navigation`, `layout`, `shared`, plus one folder per screen.
 - `src/config/navigation.ts` — sidebar items, page titles, glow and meter per screen. Add a route here.
 - `src/app/globals.css` — design tokens (CSS variables).
+
+### How sign-in works
+
+- **Session:** a signed token (HMAC-SHA256) in an `HttpOnly`, `SameSite=Lax` cookie (`Secure` over HTTPS), valid 12 hours. Nothing is kept in JS-readable storage.
+- **Two layers, as the Next.js auth guide recommends.** `proxy.ts` only *looks* at the cookie to redirect (fast, optimistic).
+  Every API route then **verifies the signature and loads the user** via `authed()`, so a forged cookie can open the page shell but never any data.
+  A bad cookie is cleared by the 401 that rejects it, which prevents redirect loops.
+- **Who you are** comes from the session on the server (message author, activity feed, "can't delete yourself"), never from the client.
+- **Also in place:** cross-origin write requests are refused, and `?next=` only accepts same-site paths (no open redirects).
+- **Client:** any 401 sends the user to `/signin?reason=expired` and back to the same page after signing in. Pages restored from the
+  browser's back/forward cache re-check the session.
 
 ### Adding Screens 5 and 6 later
 Replace the `ComingSoon` in `src/app/projects/page.tsx` / `src/app/ai-command/page.tsx`. Routes, sidebar items and titles already exist.
@@ -68,21 +109,25 @@ Replace the `ComingSoon` in `src/app/projects/page.tsx` / `src/app/ai-command/pa
 ## Quality
 
 - `npx tsc --noEmit`, `npm run lint` and `npm run build` are clean.
+- Sign-in: redirects, API lockdown, validation, forged/tampered cookies, expiry, sign-out and open-redirect guards are all covered by the browser suite.
 - Keyboard: dropdowns (↑ ↓ Home End Enter Esc), modals (focus trap, Esc, focus return), cards (Enter / Space), skip link, visible focus rings.
 - Respects `prefers-reduced-motion` and the in-app *Reduce motion* setting.
 - No horizontal overflow from 320px to desktop. The design is desktop-first; narrow screens shrink the same layout (sidebar becomes an icon rail).
-- Date/time maths has unit assertions: `npx tsx src/lib/calendar.test.ts`.
+- Unit assertions: `npx tsx src/lib/calendar.test.ts` (date/time maths) and `npx tsx src/lib/auth.test.ts` (redirect guard, token decoding).
 
 ## Known limits (prototype)
 
-- One fixed signed-in user (Stad Osuyos); there is no authentication.
+- **Sign-in doesn't authenticate** (no password, by design for now) — see "Signing in" above.
+- Accounts exist only for the seeded demo members. Members added through the UI can't sign in until an account is provisioned
+  (there is no admin screen for that yet).
+- The session signing key lives in server memory unless `SESSION_SECRET` is set; behind a load balancer, set it.
 - File attachments and report uploads keep only the file name — there is no file storage.
 - The in-memory store is per server process and resets on restart.
 
 ## Testing
 
 `qa/functional.py` is a Playwright (Python) suite that drives a real browser through the whole app — navigation, every form,
-drag-and-drop, keyboard use, error states, print styles and responsive overflow (105 steps). `qa/overflow.py <width>` lists any element
+drag-and-drop, keyboard use, error states, print styles and responsive overflow (including the sign-in flows). `qa/overflow.py <width>` lists any element
 that overflows the viewport at a given width.
 
 ```bash

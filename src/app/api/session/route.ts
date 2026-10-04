@@ -1,9 +1,11 @@
-import { CURRENT_USER_ID } from "@/server/db";
+import { authed, emailFor } from "@/server/auth";
 import { ok } from "@/server/http";
+import type { Session } from "@/types/models";
 
 export const dynamic = "force-dynamic";
 
-/** Stand-in for real authentication: the signed-in user is fixed (Stad Osuyos). */
-export async function GET() {
-  return ok({ userId: CURRENT_USER_ID });
-}
+/** Who is signed in. 401 when nobody is (the client then sends them to /signin). */
+export const GET = authed(async (_req, _ctx, user) => {
+  const session: Session = { userId: user.id, email: emailFor(user.id) };
+  return ok(session);
+});

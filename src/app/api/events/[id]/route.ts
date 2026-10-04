@@ -1,11 +1,12 @@
 import { getDb } from "@/server/db";
 import { fail, ok, readJson } from "@/server/http";
 import { parseEventFields } from "../validate";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function PATCH(req: Request, { params }: Ctx) {
+export const PATCH = authed<Ctx>(async (req: Request, { params }: Ctx) => {
   const { id } = await params;
   const db = getDb();
   const ev = db.events.find((e) => e.id === id);
@@ -16,13 +17,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if ("error" in parsed) return fail(parsed.error);
   Object.assign(ev, parsed.fields);
   return ok(ev);
-}
+});
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export const DELETE = authed<Ctx>(async (_req: Request, { params }: Ctx) => {
   const { id } = await params;
   const db = getDb();
   const idx = db.events.findIndex((e) => e.id === id);
   if (idx < 0) return fail("Event not found", 404);
   db.events.splice(idx, 1);
   return ok({ id });
-}
+});

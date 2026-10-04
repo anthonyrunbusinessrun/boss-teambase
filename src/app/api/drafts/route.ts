@@ -1,15 +1,16 @@
 import { getDb, logActivity, newId } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
 import type { ReportDraft } from "@/types/models";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = authed(async () => {
   return ok(getDb().drafts);
-}
+});
 
 /** POST { templateId, title? } */
-export async function POST(req: Request) {
+export const POST = authed(async (req: Request, _ctx, me) => {
   const body = await readJson(req);
   const db = getDb();
   const tpl = db.templates.find((t) => t.id === str(body?.templateId));
@@ -21,6 +22,6 @@ export async function POST(req: Request) {
     createdAt: new Date().toISOString(),
   };
   db.drafts.unshift(draft);
-  logActivity(db, { text: "created a draft:", object: draft.title, objectHref: `/reports?template=${tpl.id}`, objectTone: "strong" });
+  logActivity(db, me, { text: "created a draft:", object: draft.title, objectHref: `/reports?template=${tpl.id}`, objectTone: "strong" });
   return ok(draft, 201);
-}
+});

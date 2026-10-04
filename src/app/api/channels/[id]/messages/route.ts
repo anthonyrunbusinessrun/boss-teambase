@@ -1,11 +1,12 @@
-import { currentUser, getDb, newId, resolveMessage } from "@/server/db";
+import { getDb, newId, resolveMessage } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
 import type { Attachment, ChatMessage } from "@/types/models";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(req: Request, { params }: Ctx) {
+export const POST = authed<Ctx>(async (req: Request, { params }: Ctx, me) => {
   const { id } = await params;
   const db = getDb();
   const c = db.conversations.find((x) => x.id === id);
@@ -22,7 +23,6 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!text && attachments.length === 0) return fail("Write a message before sending");
   if (text.length > 4000) return fail("Messages can be up to 4,000 characters");
 
-  const me = currentUser(db);
   const msg: ChatMessage = {
     id: newId("msg"),
     conversationId: id,
@@ -37,4 +37,4 @@ export async function POST(req: Request, { params }: Ctx) {
   (db.messages[id] ??= []).push(msg);
   c.typingUser = undefined;
   return ok(resolveMessage(db, msg), 201);
-}
+});

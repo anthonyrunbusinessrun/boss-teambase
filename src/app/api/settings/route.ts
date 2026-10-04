@@ -1,14 +1,15 @@
 import { getDb } from "@/server/db";
 import { fail, ok, readJson } from "@/server/http";
 import { ZONES } from "@/lib/zones";
+import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = authed(async () => {
   return ok(getDb().settings);
-}
+});
 
-export async function PATCH(req: Request) {
+export const PATCH = authed(async (req: Request) => {
   const body = await readJson(req);
   if (!body) return fail("Invalid request body");
   const db = getDb();
@@ -28,4 +29,4 @@ export async function PATCH(req: Request) {
     }
   }
   return ok(s);
-}
+});

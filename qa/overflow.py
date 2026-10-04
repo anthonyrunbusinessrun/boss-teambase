@@ -1,4 +1,4 @@
-import sys
+import os, sys
 from playwright.sync_api import sync_playwright
 W = int(sys.argv[1]) if len(sys.argv) > 1 else 390
 JS = """(vw) => {
@@ -15,7 +15,11 @@ JS = """(vw) => {
   out.sort((a,b) => b[0]-a[0]); return out.slice(0, 6);
 }"""
 with sync_playwright() as p:
-    b = p.chromium.launch(args=["--no-sandbox"]); page = b.new_page(viewport={"width": W, "height": 844})
+    b = p.chromium.launch(args=["--no-sandbox"]); ctx = b.new_context(viewport={"width": W, "height": 844}); page = ctx.new_page()
+    base = os.environ.get("BASE", "http://localhost:3001")
+    # signed-out check of the sign-in page, then sign in via the API so the app routes can be measured
+    page.goto(base + "/signin", wait_until="networkidle"); print(f"{'/signin':14s} scrollWidth={page.evaluate('document.documentElement.scrollWidth')}  offenders: {page.evaluate(JS, W)}")
+    ctx.request.post(base + "/api/auth/login", data={"email": "stad@teambase.test"})
     for path in ["/", "/channels", "/actions", "/calendar", "/team", "/reports", "/world-clock", "/projects"]:
         page.goto("" + __import__("os").environ.get("BASE", "http://localhost:3001") + "" + path, wait_until="networkidle"); page.wait_for_timeout(300)
         sw = page.evaluate("document.documentElement.scrollWidth")
