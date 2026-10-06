@@ -25,7 +25,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   height: 48px;
   padding: 0 14px 0 16px;
   border-radius: var(--radius-md);
@@ -34,11 +34,24 @@
   color: var(--text-secondary);
   transition: background 150ms var(--ease), color 150ms var(--ease), box-shadow 150ms var(--ease);
 }
-.item svg { flex-shrink: 0; color: var(--accent-blue); transition: color 150ms var(--ease); }
+/* Emoji icon: a fixed 22px box so every glyph (and every platform's emoji font) lines the labels up identically */
+.emoji {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 18px;
+  line-height: 1;
+  font-variant-emoji: emoji;
+  transition: transform 160ms var(--ease);
+}
+.item:hover .emoji { transform: scale(1.18); }
+.active .emoji { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35)); }
 .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item:hover { background: rgba(21, 101, 192, 0.12); color: #fff; }
 .active, .active:hover { background: var(--brand-red); color: #fff; box-shadow: var(--shadow-glow-red); }
-.active svg, .active:hover svg { color: #fff; }
 
 .badge {
   display: inline-grid;
@@ -70,7 +83,8 @@
   .brandMark { display: block !important; }
   .nav { padding: 20px 12px 0; }
   .item { justify-content: center; padding: 0; }
-  .label { display: none; }
+  /* visually hidden, not display:none — screen readers still get each link's name */
+  .label { position: absolute; flex: none; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   .badge { position: absolute; top: 4px; right: 4px; min-width: 16px; height: 16px; font-size: 10px; padding: 0 4px; }
   .meter { display: none; }
 }

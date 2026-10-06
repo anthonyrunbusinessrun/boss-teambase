@@ -182,6 +182,27 @@ with sync_playwright() as p:
     @step("Screen 6 placeholder (AI Command)")
     def _():
         goto("/ai-command"); expect(page.get_by_text("Coming Soon")).to_be_visible(); expect(page.get_by_text("Screen 6")).to_be_visible()
+    EMOJI = {"Home": "🏠", "Channels": "💬", "Actions": "✅", "Calendar": "📅", "Projects": "📁", "AI Command": "🤖", "Team": "👥", "Reports": "📊", "World Clock": "🌍"}
+    @step("sidebar icons are colour emoji (no line icons), decorative, and link names stay clean")
+    def _():
+        goto("/")
+        for label, emoji in EMOJI.items():
+            link = nav(label); expect(link.locator("span[aria-hidden=true]").first).to_have_text(emoji); expect(link.locator("svg")).to_have_count(0)
+            expect(link).to_have_attribute("title", label)
+        assert page.locator('nav[aria-label="Primary"] a').count() == 9
+    @step("emoji lift on hover and keep the labels aligned in one column")
+    def _():
+        xs = {round(nav(l).locator("span").nth(1).bounding_box()["x"]) for l in EMOJI if l != "Channels"}; assert len(xs) == 1, xs   # label x identical for every item
+        e = nav("Reports").locator("span[aria-hidden=true]").first; before = e.bounding_box()["width"]; nav("Reports").hover(); page.wait_for_timeout(300)
+        assert e.bounding_box()["width"] > before * 1.1, "emoji should scale up on hover"
+    @step("collapsed rail (<=1024px): emoji stay visible and every link keeps its name")
+    def _():
+        page.set_viewport_size({"width": 900, "height": 760}); goto("/actions")
+        for label in EMOJI:
+            link = page.locator('nav[aria-label="Primary"]').get_by_role("link", name=re.compile(f"^{label}"))      # name comes from the (visually hidden) label
+            expect(link).to_be_visible(); expect(link.locator("span[aria-hidden=true]").first).to_be_visible()
+            assert link.locator("span").nth(1).bounding_box()["width"] <= 2, "label is visually hidden in the rail"
+        page.set_viewport_size({"width": 1440, "height": 1024})
     @step("sidebar meter: API volume on most screens, Service Latency on World Clock")
     def _():
         goto("/"); expect(page.get_by_text("82% Capacity")).to_be_visible()

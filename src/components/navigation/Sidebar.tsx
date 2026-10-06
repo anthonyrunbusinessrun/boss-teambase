@@ -28,7 +28,6 @@ export function Sidebar() {
       <nav aria-label="Primary" className={styles.nav}>
         {NAV_ITEMS.map((item) => {
           const active = item.href === current.href;
-          const Icon = item.icon;
           const badge = item.showBadge && unread > 0 ? unread : 0;
           return (
             <Link
@@ -38,7 +37,10 @@ export function Sidebar() {
               aria-current={active ? "page" : undefined}
               title={item.label}
             >
-              <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
+              {/* Decorative: the label already names the link, so screen readers skip the emoji. */}
+              <span className={styles.emoji} aria-hidden="true">
+                {item.emoji}
+              </span>
               <span className={styles.label}>{item.label}</span>
               {badge > 0 && (
                 <span className={styles.badge} aria-label={`${badge} unread`}>

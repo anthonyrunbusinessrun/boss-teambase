@@ -1,21 +1,9 @@
-import {
-  AlarmClock,
-  Bot,
-  Calendar,
-  FileText,
-  Folder,
-  House,
-  MessageSquare,
-  SquareKanban,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
-
 export interface NavItemConfig {
   href: string;
   /** Sidebar label (order is fixed by the design system). */
   label: string;
-  icon: LucideIcon;
+  /** Shown in the sidebar. Emoji render in full colour, which is what makes the rail stand out. */
+  emoji: string;
   /** Title shown in the header for this screen. */
   pageTitle: string;
   /** Soft blue glow under the header (design §2.5: every screen except Home and World Clocks). */
@@ -32,17 +20,17 @@ export interface NavItemConfig {
 }
 
 export const NAV_ITEMS: NavItemConfig[] = [
-  { href: "/", label: "Home", icon: House, pageTitle: "Dashboard", glow: false, meter: "api", searchPlaceholder: "Search anything…" },
-  { href: "/channels", label: "Channels", icon: MessageSquare, pageTitle: "Channels", glow: true, meter: "api", searchPlaceholder: "Search anything…", showBadge: true },
-  { href: "/actions", label: "Actions", icon: SquareKanban, pageTitle: "Actions", glow: true, meter: "api", searchPlaceholder: "Search anything…" },
-  { href: "/calendar", label: "Calendar", icon: Calendar, pageTitle: "Calendar", glow: true, meter: "api", searchPlaceholder: "Search anything…" },
+  { href: "/", label: "Home", emoji: "🏠", pageTitle: "Dashboard", glow: false, meter: "api", searchPlaceholder: "Search anything…" },
+  { href: "/channels", label: "Channels", emoji: "💬", pageTitle: "Channels", glow: true, meter: "api", searchPlaceholder: "Search anything…", showBadge: true },
+  { href: "/actions", label: "Actions", emoji: "✅", pageTitle: "Actions", glow: true, meter: "api", searchPlaceholder: "Search anything…" },
+  { href: "/calendar", label: "Calendar", emoji: "📅", pageTitle: "Calendar", glow: true, meter: "api", searchPlaceholder: "Search anything…" },
   // Screen 05 — not designed yet
-  { href: "/projects", label: "Projects", icon: Folder, pageTitle: "Projects", glow: false, meter: "api", searchPlaceholder: "Search anything…", placeholder: true },
+  { href: "/projects", label: "Projects", emoji: "📁", pageTitle: "Projects", glow: false, meter: "api", searchPlaceholder: "Search anything…", placeholder: true },
   // Screen 06 — not designed yet
-  { href: "/ai-command", label: "AI Command", icon: Bot, pageTitle: "AI Command", glow: false, meter: "api", searchPlaceholder: "Search anything…", placeholder: true },
-  { href: "/team", label: "Team", icon: Users, pageTitle: "Team Directory", glow: true, meter: "api", searchPlaceholder: "Search anything…" },
-  { href: "/reports", label: "Reports", icon: FileText, pageTitle: "Document Center", glow: true, meter: "api", searchPlaceholder: "Search anything…" },
-  { href: "/world-clock", label: "World Clock", icon: AlarmClock, pageTitle: "World Clocks", glow: false, meter: "latency", searchPlaceholder: "Search timezones…", primaryClockLabel: "MANILA TIME" },
+  { href: "/ai-command", label: "AI Command", emoji: "🤖", pageTitle: "AI Command", glow: false, meter: "api", searchPlaceholder: "Search anything…", placeholder: true },
+  { href: "/team", label: "Team", emoji: "👥", pageTitle: "Team Directory", glow: true, meter: "api", searchPlaceholder: "Search anything…" },
+  { href: "/reports", label: "Reports", emoji: "📊", pageTitle: "Document Center", glow: true, meter: "api", searchPlaceholder: "Search anything…" },
+  { href: "/world-clock", label: "World Clock", emoji: "🌍", pageTitle: "World Clocks", glow: false, meter: "latency", searchPlaceholder: "Search timezones…", primaryClockLabel: "MANILA TIME" },
 ];
 
 export function navForPath(pathname: string): NavItemConfig {
