@@ -104,6 +104,7 @@ Replace the `ComingSoon` in `src/app/projects/page.tsx` / `src/app/ai-command/pa
 - **Not in the design, added for function:** a *Create Task* button on Actions, a *Today* button on Calendar, edit/delete controls in
   the Task Details panel, unread badges in the channel list, and a status dropdown (keyboard alternative to drag-and-drop).
 - **Light theme** is not designed, so Settings shows it disabled.
+- **Chat alignment:** your own messages sit on the right and everyone else's on the left (the standard chat layout). The design file shows your message on the left, aligned with the others.
 - **Sidebar icons are emoji** (by request, to make the rail stand out) instead of the design's blue line icons. They're decorative — link names come from the labels — and live in `src/config/navigation.ts`, one string per item, so swapping any of them is a one-character change.
 - Fonts are self-hosted (`@fontsource-variable/plus-jakarta-sans`), so the build needs no network access to Google Fonts.
 

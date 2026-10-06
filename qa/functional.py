@@ -410,6 +410,17 @@ with sync_playwright() as p:
     def _():
         box = page.get_by_label("Message #design-system"); box.fill("QA hello world"); box.press("Enter")
         expect(page.get_by_text("QA hello world")).to_be_visible(); expect(box).to_have_value("")
+    @step("my message sits on the right, other people's on the left")
+    def _():
+        log = page.get_by_role("log").bounding_box(); right_edge = log["x"] + log["width"]
+        mine = page.get_by_role("log").get_by_text("QA hello world").bounding_box()
+        theirs = page.get_by_role("log").get_by_text("Design tokens are published").bounding_box()
+        assert right_edge - (mine["x"] + mine["width"]) <= 40, ("mine should hug the right edge", right_edge, mine)
+        assert theirs["x"] - log["x"] < 120, ("theirs should start at the left, after the avatar", theirs, log)
+        assert mine["x"] > theirs["x"], "my bubble starts further right than theirs"
+        # name + time and reactions follow the same side
+        my_name = page.get_by_role("article", name=re.compile("Stad Osuyos at")).last.get_by_text("Stad Osuyos").bounding_box()
+        assert my_name["x"] + my_name["width"] > right_edge - 120, my_name
     @step("send disabled when empty")
     def _():
         expect(page.get_by_role("button", name="Send message")).to_be_disabled()
