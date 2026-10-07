@@ -4,7 +4,7 @@ A working prototype of **Teambase**, the remote-team collaboration workspace fro
 built from the supplied design handoff (7 screens + design system) with **Next.js 16 · React 19 · TypeScript · Node**.
 
 It looks like the designs and behaves like a real product: every button, tab, filter, dropdown, form and modal
-does something. Data lives in an in-memory mock "database" so the whole app runs with zero setup.
+does something. Production data is persisted in PostgreSQL; local development can still run with an in-memory fallback.
 
 ## Run it
 
@@ -15,37 +15,25 @@ npm run dev          # http://localhost:3000
 npm run build && npm start
 ```
 
-Requires Node 20.9+ (Next.js 16). No database, environment variables or external services.
+Requires Node 20.9+ (Next.js 16). Copy `.env.example` to `.env.local` to use PostgreSQL and Resend locally.
 
 ## Signing in
 
-Teambase is an internal app: **there is no sign-up and no password**. Open the app and you land on `/signin`; click **Sign in** to go in.
-The work email is pre-filled with the default account (Stad Osuyos, the person the designs are drawn for), so one click is enough.
-Type another teammate's email to enter as them. Everything else — every page and every API route — requires being signed in;
-signed-out visitors are redirected to `/signin` and returned to the page they wanted.
-
-> **This is access, not security.** With no password, signing in only *selects who you are*; it proves nothing, and anyone who can
-> reach the app can sign in as anyone. That's fine for a prototype on a trusted network — don't put real data behind it or expose it
-> to the internet. To add real authentication, verify a password or SSO assertion in `src/app/api/auth/login/route.ts`; the session
-> cookie, `authed()` and the proxy that protect everything else stay as they are.
-
-Seeded accounts (mock data), one per team member, `<first name>@teambase.test`:
-
-| Account | Email |
-|---|---|
-| Stad Osuyos (UI/UX Designer) — the default | `stad@teambase.test` |
-| Ray Land (CEO) | `ray@teambase.test` |
-| Joseph Anthony (CTO) | `joseph@teambase.test` |
-| Ereika · Andrea · Shiela · Benj | `ereika@` · `andrea@` · `shiela@` · `benj@` `teambase.test` |
+Teambase uses verified work-email accounts and password authentication. Choose **Create profile**, enter your profile details,
+and follow the verification link delivered by Resend. All application routes and API data require a valid signed session.
 
 Signing in as different people shows the app from their point of view (who "me" is in chat, availability, the "can't delete yourself"
 rule, the activity feed). Sign out is in the header user menu.
 
 | Setting | Purpose |
 |---|---|
-| `SESSION_SECRET` | Signs session cookies. Optional: if unset a random one is generated per server start (everyone is signed out on restart). |
+| `DATABASE_URL` | PostgreSQL connection URL. Railway should reference the Postgres service's `DATABASE_URL`. |
+| `SESSION_SECRET` | Signs session cookies. Set a stable, random production value. |
+| `APP_URL` | Public origin used in verification links. |
+| `RESEND_API_KEY` | Resend API key used only on the server. |
+| `RESEND_FROM_EMAIL` | Sender using a Resend-verified domain. |
 
-Copy `.env.example` to `.env.local` to set it. The default sign-in email lives in `src/config/auth.ts`.
+Copy `.env.example` to `.env.local` to set these values.
 
 ## What's here
 
@@ -67,15 +55,15 @@ time zones, reduce motion, notification preferences. Global search (header) find
 ## Architecture
 
 ```
-UI components  ──►  src/services  ──►  /api route handlers  ──►  src/server/db.ts  ──►  (future) real database
-(src/components)    (typed fetch)      (src/app/api, Node)        (in-memory mock)
+UI components  ──►  src/services  ──►  /api route handlers  ──►  src/server/db.ts  ──►  PostgreSQL
+(src/components)    (typed fetch)      (src/app/api, Node)        (transactional state)
 ```
 
 - `src/types/models.ts` — the domain interfaces shared by every layer. These are the contract.
 - `src/services/` — the **only** place the UI talks to the backend. Point `NEXT_PUBLIC_API_BASE` at another server, or edit `http.ts`.
 - `src/app/api/**` — Node route handlers with validation. They only call `getDb()` and its helpers.
-- `src/server/db.ts` — the **only** file that knows data is in memory. **Replace this file to add a real database.**
-- `src/server/auth.ts` — session tokens and `authed()`, which wraps every API route. `src/config/auth.ts` — the default sign-in email.
+- `src/server/db.ts` — transactional PostgreSQL persistence with a no-config local fallback.
+- `src/server/auth.ts` — session tokens and `authed()`, which wraps every protected API route.
 - `src/proxy.ts` — redirects signed-out visitors (an optimistic cookie check only; see below).
 - `src/components/` — `buttons`, `cards`, `forms`, `modals`, `header`, `navigation`, `layout`, `shared`, plus one folder per screen.
 - `src/config/navigation.ts` — sidebar items, page titles, glow and meter per screen. Add a route here.
@@ -119,10 +107,7 @@ Replace the `ComingSoon` in `src/app/projects/page.tsx` / `src/app/ai-command/pa
 
 ## Known limits (prototype)
 
-- **Sign-in doesn't authenticate** (no password, by design for now) — see "Signing in" above.
-- Accounts exist only for the seeded demo members. Members added through the UI can't sign in until an account is provisioned
-  (there is no admin screen for that yet).
-- The session signing key lives in server memory unless `SESSION_SECRET` is set; behind a load balancer, set it.
+- New accounts must verify their email before signing in. Resend and a verified sender domain are required in production.
 - File attachments and report uploads keep only the file name — there is no file storage.
 - The in-memory store is per server process and resets on restart.
 

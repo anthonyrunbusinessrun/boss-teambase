@@ -28,7 +28,9 @@ export { ApiError, errorMessage } from "./http";
 export const sessionService = { get: () => get<Session>("/session") };
 
 export const authService = {
-  login: (email: string) => post<Session>("/auth/login", { email }),
+  login: (email: string, password: string) => post<Session>("/auth/login", { email, password }),
+  signup: (input: { email: string; password: string; name: string; role: string; department: string }) =>
+    post<{ message: string }>("/auth/signup", input),
   logout: () => post<{ ok: true }>("/auth/logout"),
 };
 
@@ -65,7 +67,10 @@ export const eventService = {
 /* Channels */
 export const channelService = {
   list: () => get<ConversationList>("/channels"),
+  create: (input: { name: string; description?: string; topic?: string }) => post<Conversation>("/channels", input),
   detail: (id: ID) => get<ConversationDetail>(`/channels/${id}`),
+  update: (id: ID, changes: Partial<Pick<Conversation, "name" | "description" | "topic">>) => patch<Conversation>(`/channels/${id}`, changes),
+  remove: (id: ID) => del<{ id: ID }>(`/channels/${id}`),
   markRead: (id: ID) => patch<Conversation>(`/channels/${id}`, { read: true }),
   setFavorite: (id: ID, favorite: boolean) => patch<Conversation>(`/channels/${id}`, { favorite }),
   send: (id: ID, body: string, attachments: { name: string; size: number }[] = []) =>

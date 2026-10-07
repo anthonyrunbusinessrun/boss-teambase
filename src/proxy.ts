@@ -12,7 +12,7 @@ export function proxy(request: NextRequest) {
   const signedIn = looksSignedIn(request.cookies.get(SESSION_COOKIE)?.value);
 
   if (pathname.startsWith("/api/")) {
-    if (signedIn || pathname.startsWith("/api/auth/")) return NextResponse.next();
+    if (signedIn || pathname.startsWith("/api/auth/") || pathname === "/api/health") return NextResponse.next();
     return NextResponse.json({ error: "Sign in to continue" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
 

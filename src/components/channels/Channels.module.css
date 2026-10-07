@@ -12,6 +12,10 @@
 .group + .group { margin-top: 20px; }
 .group ul { display: flex; flex-direction: column; gap: 8px; }
 .groupLabel { padding: 0 8px; margin-bottom: 8px; }
+.groupHeading { display: flex; align-items: center; justify-content: space-between; }
+.groupHeading .groupLabel { margin-bottom: 8px; }
+.groupAction { display: grid; place-items: center; width: 26px; height: 26px; margin: -4px 4px 4px 0; border-radius: var(--radius-sm); color: var(--text-secondary); }
+.groupAction:hover { color: #fff; background: rgba(255,255,255,.07); }
 .groupHint { padding: 6px 10px; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
 .row {
   display: flex;

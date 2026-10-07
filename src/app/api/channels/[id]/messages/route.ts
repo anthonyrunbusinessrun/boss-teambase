@@ -1,4 +1,4 @@
-import { getDb, newId, resolveMessage } from "@/server/db";
+import { mutateDb, newId, resolveMessage } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
 import type { Attachment, ChatMessage } from "@/types/models";
 import { authed } from "@/server/auth";
@@ -8,9 +8,6 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export const POST = authed<Ctx>(async (req: Request, { params }: Ctx, me) => {
   const { id } = await params;
-  const db = getDb();
-  const c = db.conversations.find((x) => x.id === id);
-  if (!c) return fail("Conversation not found", 404);
   const body = await readJson(req);
   if (!body) return fail("Invalid request body");
 
@@ -23,18 +20,15 @@ export const POST = authed<Ctx>(async (req: Request, { params }: Ctx, me) => {
   if (!text && attachments.length === 0) return fail("Write a message before sending");
   if (text.length > 4000) return fail("Messages can be up to 4,000 characters");
 
-  const msg: ChatMessage = {
-    id: newId("msg"),
-    conversationId: id,
-    authorMemberId: me.id,
-    authorName: me.name,
-    authorInitials: me.initials,
-    body: text,
-    createdAt: new Date().toISOString(),
-    reactions: [],
-    attachments,
-  };
-  (db.messages[id] ??= []).push(msg);
-  c.typingUser = undefined;
-  return ok(resolveMessage(db, msg), 201);
+  return mutateDb((db) => {
+    const c = db.conversations.find((x) => x.id === id);
+    if (!c) return fail("Conversation not found", 404);
+    const msg: ChatMessage = {
+      id: newId("msg"), conversationId: id, authorMemberId: me.id, authorName: me.name,
+      authorInitials: me.initials, body: text, createdAt: new Date().toISOString(), reactions: [], attachments,
+    };
+    (db.messages[id] ??= []).push(msg);
+    c.typingUser = undefined;
+    return ok(resolveMessage(db, msg), 201);
+  });
 });

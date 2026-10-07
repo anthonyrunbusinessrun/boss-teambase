@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageSquare, Paperclip, Pin, Search, SearchX, Send, Smile, SmilePlus, X } from "lucide-react";
+import { MessageSquare, Paperclip, Pencil, Pin, Search, SearchX, Send, Smile, SmilePlus, Trash2, X } from "lucide-react";
 import { Avatar, PresenceDot } from "@/components/shared/Avatar";
 import { EmptyState, ErrorState, LoadingState } from "@/components/shared/States";
 import { useApp } from "@/providers/AppProvider";
@@ -19,17 +19,24 @@ const EMOJI_CHOICES = ["😀", "😂", "😊", "😍", "🤔", "😅", "👍", "
 
 interface ConversationViewProps {
   id: string;
+  refreshToken: number;
   /** Called when something changed that affects the list (read state, favorite). */
   onListChanged: () => void;
+  onDeleted: () => void;
 }
 
 /** Thread + details for one conversation. Keyed by id so state resets when you switch. */
-export function ConversationView({ id, onListChanged }: ConversationViewProps) {
+export function ConversationView({ id, refreshToken, onListChanged, onDeleted }: ConversationViewProps) {
   const fetcher = useCallback(() => channelService.detail(id), [id]);
   const detail = useResource(fetcher);
+  const reloadDetail = detail.reload;
   const { refreshUnread } = useApp();
   const marked = useRef(false);
   const unread = detail.data?.conversation.unread ?? 0;
+
+  useEffect(() => {
+    if (refreshToken > 0) void reloadDetail();
+  }, [refreshToken, reloadDetail]);
 
   // Opening a conversation reads it: clears its badge here and in the sidebar.
   useEffect(() => {
@@ -68,12 +75,12 @@ export function ConversationView({ id, onListChanged }: ConversationViewProps) {
     );
   }
 
-  return <Loaded data={detail.data} update={detail.setData} onListChanged={onListChanged} />;
+  return <Loaded data={detail.data} update={detail.setData} onListChanged={onListChanged} onDeleted={onDeleted} />;
 }
 
 type Update = React.Dispatch<React.SetStateAction<ConversationDetail | undefined>>;
 
-function Loaded({ data, update, onListChanged }: { data: ConversationDetail; update: Update; onListChanged: () => void }) {
+function Loaded({ data, update, onListChanged, onDeleted }: { data: ConversationDetail; update: Update; onListChanged: () => void; onDeleted: () => void }) {
   const { conversation: c, messages, members } = data;
   const { me, primaryZone } = useApp();
   const toast = useToast();
@@ -103,6 +110,26 @@ function Loaded({ data, update, onListChanged }: { data: ConversationDetail; upd
       update((cur) => cur && { ...cur, conversation: { ...cur.conversation, favorite: !next } });
       toast.error(errorMessage(e));
     }
+  };
+
+  const editChannel = async () => {
+    const nextName = window.prompt("Channel name", c.name)?.trim();
+    if (!nextName || nextName === c.name) return;
+    try {
+      const changed = await channelService.update(c.id, { name: nextName });
+      update((current) => current && { ...current, conversation: changed });
+      onListChanged();
+      toast.success(`Channel renamed to #${changed.name}`);
+    } catch (error) { toast.error(errorMessage(error)); }
+  };
+
+  const deleteConversation = async () => {
+    if (!window.confirm(`Delete ${label(c)} and all of its messages? This can't be undone.`)) return;
+    try {
+      await channelService.remove(c.id);
+      toast.success(`${label(c)} deleted`);
+      onDeleted();
+    } catch (error) { toast.error(errorMessage(error)); }
   };
 
   const react = async (m: ChatMessage, emoji: string) => {
@@ -139,6 +166,8 @@ function Loaded({ data, update, onListChanged }: { data: ConversationDetail; upd
             <p className={styles.threadDesc}>{c.description}</p>
           </div>
           <div className={styles.headActions}>
+            {c.type === "channel" && <button type="button" className={styles.headBtn} aria-label="Rename channel" onClick={editChannel}><Pencil size={17} /></button>}
+            <button type="button" className={styles.headBtn} aria-label={`Delete ${label(c)}`} onClick={deleteConversation}><Trash2 size={17} /></button>
             <button type="button" className={cx(styles.headBtn, finding && styles.headBtnOn)} aria-label="Search messages" aria-pressed={finding} onClick={() => { setFinding((f) => !f); setFind(""); }}>
               <Search size={18} />
             </button>

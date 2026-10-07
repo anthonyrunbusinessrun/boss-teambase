@@ -7,10 +7,11 @@ interface ChannelListProps {
   conversations: Conversation[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onCreate: () => void;
 }
 
 /** Favorites · Channels · Direct Messages (design §6.13). */
-export function ChannelList({ conversations, selectedId, onSelect }: ChannelListProps) {
+export function ChannelList({ conversations, selectedId, onSelect, onCreate }: ChannelListProps) {
   const favorites = conversations.filter((c) => c.favorite);
   const channels = conversations.filter((c) => c.type === "channel" && !c.favorite);
   const dms = conversations.filter((c) => c.type === "dm" && !c.favorite);
@@ -46,9 +47,10 @@ export function ChannelList({ conversations, selectedId, onSelect }: ChannelList
         {favorites.length ? <ul>{favorites.map(row)}</ul> : <p className={styles.groupHint}>Pin a channel to keep it here.</p>}
       </section>
       <section className={styles.group} aria-labelledby="grp-ch">
-        <h2 id="grp-ch" className={`section-label ${styles.groupLabel}`}>
-          Channels
-        </h2>
+        <div className={styles.groupHeading}>
+          <h2 id="grp-ch" className={`section-label ${styles.groupLabel}`}>Channels</h2>
+          <button type="button" className={styles.groupAction} aria-label="Create channel" onClick={onCreate}><Plus size={15} /></button>
+        </div>
         <ul>{channels.map(row)}</ul>
       </section>
       <section className={styles.group} aria-labelledby="grp-dm">
@@ -60,3 +62,4 @@ export function ChannelList({ conversations, selectedId, onSelect }: ChannelList
     </nav>
   );
 }
+import { Plus } from "lucide-react";

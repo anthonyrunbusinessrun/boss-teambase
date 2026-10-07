@@ -65,13 +65,14 @@ export function clearSessionCookie(res: NextResponse, secure: boolean) {
 
 /* ------------------------------ current user ------------------------------ */
 
-export const emailFor = (memberId: ID): string => getDb().accounts.find((a) => a.memberId === memberId)?.email ?? "";
+export const emailFor = async (memberId: ID): Promise<string> =>
+  (await getDb()).accounts.find((a) => a.memberId === memberId)?.email ?? "";
 
 /** The signed-in team member, or null. Verifies the signature and that the account still exists. */
 export async function getSessionUser(): Promise<TeamMember | null> {
   const payload = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
   if (!payload) return null;
-  const db = getDb();
+  const db = await getDb();
   if (!db.accounts.some((a) => a.memberId === payload.uid)) return null;
   return db.members.find((m) => m.id === payload.uid) ?? null;
 }

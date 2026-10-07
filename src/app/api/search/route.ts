@@ -10,7 +10,7 @@ const has = (q: string, ...fields: Array<string | undefined>) => fields.some((f)
 export const GET = authed(async (req: Request) => {
   const q = (new URL(req.url).searchParams.get("q") ?? "").trim().toLowerCase();
   if (!q) return ok<SearchResult[]>([]);
-  const db = getDb();
+  const db = await getDb();
   const out: SearchResult[] = [];
 
   db.members

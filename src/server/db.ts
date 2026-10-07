@@ -9,6 +9,7 @@
  * (in the primary time zone) so the app always looks alive.
  */
 import { randomUUID } from "node:crypto";
+import { Pool, type PoolClient } from "pg";
 import { zonedParts, zonedTimeToUtc } from "@/lib/time";
 import { makeInitials } from "@/lib/utils";
 import type {
@@ -36,6 +37,11 @@ export interface Account {
   memberId: ID;
   /** Work email, lower-case. */
   email: string;
+  passwordHash?: string;
+  emailVerifiedAt?: string;
+  verificationTokenHash?: string;
+  verificationExpiresAt?: string;
+  createdAt?: string;
 }
 
 export interface Db {
@@ -388,11 +394,110 @@ function seed(): Db {
   };
 }
 
-const g = globalThis as unknown as { __teambaseDb?: Db };
+type DbGlobals = {
+  __teambaseDb?: Db;
+  __teambaseDbVersion?: number;
+  __teambasePool?: Pool;
+  __teambaseSchemaReady?: Promise<void>;
+};
 
-export function getDb(): Db {
-  if (!g.__teambaseDb) g.__teambaseDb = seed();
-  return g.__teambaseDb;
+const g = globalThis as unknown as DbGlobals;
+const databaseUrl = process.env.DATABASE_URL;
+
+function pool(): Pool {
+  if (!databaseUrl) throw new Error("DATABASE_URL is not configured");
+  return (g.__teambasePool ??= new Pool({
+    connectionString: databaseUrl,
+    max: 10,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+    ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined,
+  }));
+}
+
+function normalizeDb(value: Db): Db {
+  value.accounts ??= [];
+  value.members ??= [];
+  value.tasks ??= [];
+  value.events ??= [];
+  value.conversations ??= [];
+  value.messages ??= {};
+  value.templates ??= [];
+  value.drafts ??= [];
+  value.activity ??= [];
+  value.notifications ??= [];
+  value.nextTicket ??= 1;
+  return value;
+}
+
+async function ensureSchema(): Promise<void> {
+  if (!databaseUrl) return;
+  g.__teambaseSchemaReady ??= (async () => {
+    const db = pool();
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS teambase_state (
+        id SMALLINT PRIMARY KEY CHECK (id = 1),
+        data JSONB NOT NULL,
+        version BIGINT NOT NULL DEFAULT 1,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.query(
+      `INSERT INTO teambase_state (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING`,
+      [JSON.stringify(seed())],
+    );
+  })();
+  return g.__teambaseSchemaReady;
+}
+
+/** Read the latest persisted application state. Local development falls back to memory when DATABASE_URL is absent. */
+export async function getDb(): Promise<Db> {
+  if (!databaseUrl) return (g.__teambaseDb ??= seed());
+  await ensureSchema();
+  const result = await pool().query<{ data: Db }>("SELECT data FROM teambase_state WHERE id = 1");
+  if (!result.rows[0]) throw new Error("Teambase database state is missing");
+  return normalizeDb(result.rows[0].data);
+}
+
+/**
+ * Apply a mutation under a PostgreSQL row lock. This keeps concurrent creates and updates from overwriting each other.
+ * The callback may throw; the transaction is rolled back and the error is handled by the API auth wrapper.
+ */
+export async function mutateDb<T>(mutate: (db: Db) => T | Promise<T>): Promise<T> {
+  if (!databaseUrl) {
+    const db = (g.__teambaseDb ??= seed());
+    const result = await mutate(db);
+    g.__teambaseDbVersion = (g.__teambaseDbVersion ?? 1) + 1;
+    return result;
+  }
+
+  await ensureSchema();
+  const client: PoolClient = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query<{ data: Db }>("SELECT data FROM teambase_state WHERE id = 1 FOR UPDATE");
+    if (!locked.rows[0]) throw new Error("Teambase database state is missing");
+    const db = normalizeDb(locked.rows[0].data);
+    const result = await mutate(db);
+    await client.query(
+      "UPDATE teambase_state SET data = $1::jsonb, version = version + 1, updated_at = NOW() WHERE id = 1",
+      [JSON.stringify(db)],
+    );
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getDbVersion(): Promise<number> {
+  if (!databaseUrl) return g.__teambaseDbVersion ?? 1;
+  await ensureSchema();
+  const result = await pool().query<{ version: string }>("SELECT version FROM teambase_state WHERE id = 1");
+  return Number(result.rows[0]?.version ?? 1);
 }
 
 /* ------------------------------ helpers ------------------------------ */

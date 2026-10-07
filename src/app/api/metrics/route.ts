@@ -12,7 +12,7 @@ const SEED_OPEN = 3; // backlog + to do in the seed board
 const SEED_IN_PROGRESS = 1;
 
 export const GET = authed(async () => {
-  const { tasks } = getDb();
+  const { tasks } = await getDb();
   const open = tasks.filter((t) => t.status === "backlog" || t.status === "todo").length;
   const inProgress = tasks.filter((t) => t.status === "in-progress").length;
   const metrics: WeeklyMetric[] = [

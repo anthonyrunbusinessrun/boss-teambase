@@ -6,6 +6,6 @@ export const dynamic = "force-dynamic";
 
 /** Who is signed in. 401 when nobody is (the client then sends them to /signin). */
 export const GET = authed(async (_req, _ctx, user) => {
-  const session: Session = { userId: user.id, email: emailFor(user.id) };
+  const session: Session = { userId: user.id, email: await emailFor(user.id) };
   return ok(session);
 });

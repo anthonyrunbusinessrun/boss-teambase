@@ -5,5 +5,5 @@ import { authed } from "@/server/auth";
 export const dynamic = "force-dynamic";
 
 export const GET = authed(async () => {
-  return ok(getDb().system);
+  return ok((await getDb()).system);
 });
