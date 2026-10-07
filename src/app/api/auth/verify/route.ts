@@ -4,6 +4,17 @@ import { mutateDb } from "@/server/db";
 
 export const dynamic = "force-dynamic";
 
+function publicOrigin(requestOrigin: string): string {
+  const configuredUrl = process.env.APP_URL?.trim();
+  if (!configuredUrl) return requestOrigin;
+  try {
+    return new URL(configuredUrl).origin;
+  } catch {
+    console.error("APP_URL is invalid; falling back to the request origin");
+    return requestOrigin;
+  }
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const token = url.searchParams.get("token") ?? "";
@@ -21,7 +32,10 @@ export async function GET(req: Request) {
     delete account.verificationExpiresAt;
     return true;
   });
-  const redirect = new URL("/signin", url.origin);
+  // Railway terminates HTTPS at its proxy and may expose the app's internal
+  // localhost URL to Next.js. Always send people back to the configured public
+  // application origin after they follow an emailed verification link.
+  const redirect = new URL("/signin", publicOrigin(url.origin));
   redirect.searchParams.set(verified ? "verified" : "verification-error", "1");
   return NextResponse.redirect(redirect);
 }
