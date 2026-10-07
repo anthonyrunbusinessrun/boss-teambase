@@ -22,6 +22,9 @@ export async function POST(req: Request) {
   if (!EMAIL_PATTERN.test(email) || email.length > 254) return fail("Enter a valid work email.");
   if (!role || !department) return fail("Enter your job title and department.");
   if (password.length < 10 || password.length > 128) return fail("Use a password between 10 and 128 characters.");
+  if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
+    return fail("Email verification is temporarily unavailable. Ask the workspace administrator to finish the Resend setup.", 503);
+  }
 
   const passwordHash = await hash(password, 12);
   const token = randomBytes(32).toString("base64url");
