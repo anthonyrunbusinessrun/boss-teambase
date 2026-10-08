@@ -43,7 +43,7 @@ export function Dashboard() {
     void activity.reload();
   }, [tasks, metrics, activity]);
 
-  const critical = (tasks.data ?? []).filter((t) => t.priority === "high").length;
+  const critical = (tasks.data ?? []).filter((t) => t.priority === "high" && t.status !== "done").length;
   const upcoming = (events.data ?? []).filter((e) => e.kind === "meeting" && now && new Date(e.start) > now);
   const nextMeeting = upcoming[0];
 

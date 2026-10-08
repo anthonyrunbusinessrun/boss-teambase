@@ -1,6 +1,8 @@
 import { getDb, makeInitials, mutateDb, wouldCreateCycle } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
 import { authed } from "@/server/auth";
+import { publishTasks } from "@/server/actions-events";
+import type { Task } from "@/types/models";
 
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
@@ -37,15 +39,28 @@ export const PATCH = authed<Ctx>(async (req: Request, { params }: Ctx) => {
 
 export const DELETE = authed<Ctx>(async (_req: Request, { params }: Ctx, me) => {
   const { id } = await params;
-  return mutateDb((db) => {
+  const result = await mutateDb((db) => {
     const idx = db.members.findIndex((x) => x.id === id);
     if (idx < 0) return fail("Member not found", 404);
     if (id === me.id) return fail("You can't remove your own profile");
     const [removed] = db.members.splice(idx, 1);
     db.accounts = db.accounts.filter((a) => a.memberId !== id);
     for (const m of db.members) if (m.managerId === id) m.managerId = removed.managerId;
-    for (const t of db.tasks) if (t.assigneeId === id) t.assigneeId = null;
+    const unassigned: Task[] = [];
+    for (const t of db.tasks) {
+      if (t.assigneeId !== id) continue;
+      t.assigneeId = null;
+      t.rev += 1;
+      t.updatedAt = new Date().toISOString();
+      t.updatedBy = me.id;
+      unassigned.push(t);
+    }
     for (const c of db.conversations) c.memberIds = c.memberIds.filter((x) => x !== id);
-    return ok({ id });
+    return { unassigned };
   });
+  if (!("unassigned" in result)) return result;
+  for (const company of new Set(result.unassigned.map((t) => t.companyId))) {
+    publishTasks(company, "updated", result.unassigned.filter((t) => t.companyId === company).map((t) => t.id), me);
+  }
+  return ok({ id });
 });

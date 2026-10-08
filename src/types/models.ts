@@ -34,17 +34,24 @@ export interface TeamMember {
 export type NewTeamMember = Pick<TeamMember, "name" | "role" | "department"> &
   Partial<Pick<TeamMember, "initials" | "status" | "managerId" | "skills">>;
 
-/* ----------------------------- Actions (kanban) ----------------------------- */
+/* ----------------------------- Actions (companies · boards · sprints) ----------------------------- */
 
-export type TaskStatus = "backlog" | "todo" | "in-progress" | "review";
+/** The three top-level sections. Each has its own Board and its own Sprints. */
+export type CompanyId = "boss" | "rli" | "ll";
+
+/** There is deliberately no "backlog" status: work that isn't in a sprint yet is simply *unscheduled* (`sprintId: null`). */
+export type TaskStatus = "todo" | "in-progress" | "review" | "done";
 export type Priority = "high" | "medium" | "low";
 
 export interface Task {
   id: ID;
-  /** Human ticket key, e.g. "TB-48". */
+  /** Human ticket key, e.g. "BOSS-49" (older tickets keep "TB-48"). */
   key: string;
   title: string;
   description: string;
+  companyId: CompanyId;
+  /** The sprint this work is planned into; `null` = unscheduled. */
+  sprintId: ID | null;
   status: TaskStatus;
   priority: Priority;
   /** yyyy-mm-dd */
@@ -52,9 +59,52 @@ export interface Task {
   /** 0–100 */
   progress: number;
   assigneeId: ID | null;
+  /** Increases on every change. Lets a client tell a newer version of a task from an older one arriving late. */
+  rev: number;
+  updatedAt: string;
+  updatedBy?: ID;
 }
 
-export type TaskInput = Omit<Task, "id" | "key">;
+export type TaskInput = Omit<Task, "id" | "key" | "rev" | "updatedAt" | "updatedBy">;
+
+export type SprintStatus = "planned" | "active" | "completed";
+
+export interface SprintSummary {
+  /** Tasks in the sprint when it was completed. */
+  total: number;
+  done: number;
+  /** Unfinished tasks that were moved on (to another sprint or back to unscheduled). */
+  moved: number;
+}
+
+export interface Sprint {
+  id: ID;
+  companyId: CompanyId;
+  /** Per company: Sprint 1, Sprint 2… */
+  number: number;
+  name: string;
+  goal: string;
+  status: SprintStatus;
+  /** yyyy-mm-dd */
+  startDate: string;
+  endDate: string;
+  startedAt?: string;
+  completedAt?: string;
+  summary?: SprintSummary;
+}
+
+/** Per-company overview shown on the folder cards. */
+export interface CompanySummary {
+  id: CompanyId;
+  activeSprint: Pick<Sprint, "id" | "name" | "startDate" | "endDate"> | null;
+  sprintCount: number;
+  /** Not-done tasks in the active sprint. */
+  open: number;
+  /** Done tasks in the active sprint. */
+  done: number;
+  /** Work not in any sprint. */
+  unscheduled: number;
+}
 
 /* ----------------------------- Calendar ----------------------------- */
 
@@ -199,7 +249,10 @@ export type RealtimeEvent =
   | { type: "presence"; memberId: ID; online: boolean }
   | { type: "typing"; conversationId: ID; memberId: ID; name: string; typing: boolean }
   | { type: "message"; conversationId: ID; change: "created" | "updated" | "status"; messageIds: ID[] }
-  | { type: "conversation"; conversationId: ID; change: "created" | "updated" | "deleted" | "read" };
+  | { type: "conversation"; conversationId: ID; change: "created" | "updated" | "deleted" | "read" }
+  /** Board work changed. `by` is who did it (first name), `byId` lets their own browser ignore the echo. */
+  | { type: "task"; change: "created" | "updated" | "deleted"; companyId: CompanyId; taskIds: ID[]; by: string; byId: ID }
+  | { type: "sprint"; change: "created" | "updated" | "deleted" | "started" | "completed"; companyId: CompanyId; sprintId: ID; by: string; byId: ID };
 
 /* ----------------------------- Reports / Document Center ----------------------------- */
 

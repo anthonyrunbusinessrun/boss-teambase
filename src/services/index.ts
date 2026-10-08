@@ -5,6 +5,8 @@ import type {
   ActivityItem,
   Attachment,
   ChannelMember,
+  CompanyId,
+  CompanySummary,
   AppNotification,
   CalendarEvent,
   ChatMessage,
@@ -19,6 +21,7 @@ import type {
   SearchResult,
   Session,
   Settings,
+  Sprint,
   SystemMeters,
   Task,
   TaskInput,
@@ -53,11 +56,41 @@ export const memberService = {
 };
 
 /* Actions */
+export interface TaskQuery {
+  company?: CompanyId;
+  /** A sprint id, or "none" for unscheduled work. */
+  sprint?: ID | "none";
+  /** Only these tasks (used to apply live updates without re-downloading the board). */
+  ids?: ID[];
+}
+
 export const taskService = {
-  list: () => get<Task[]>("/tasks"),
+  list: (query: TaskQuery = {}) => {
+    const q = new URLSearchParams();
+    if (query.company) q.set("company", query.company);
+    if (query.sprint) q.set("sprint", query.sprint);
+    if (query.ids) q.set("ids", query.ids.join(","));
+    const qs = q.toString();
+    return get<Task[]>(`/tasks${qs ? `?${qs}` : ""}`);
+  },
   create: (input: Partial<TaskInput> & { title: string }) => post<Task>("/tasks", input),
   update: (id: ID, changes: Partial<TaskInput>) => patch<Task>(`/tasks/${id}`, changes),
   remove: (id: ID) => del<{ id: ID }>(`/tasks/${id}`),
+};
+
+export const sprintService = {
+  list: (company?: CompanyId) => get<Sprint[]>(`/sprints${company ? `?company=${company}` : ""}`),
+  create: (input: { companyId: CompanyId; name?: string; goal?: string; startDate?: string; endDate?: string }) => post<Sprint>("/sprints", input),
+  update: (id: ID, changes: Partial<Pick<Sprint, "name" | "goal" | "startDate" | "endDate">>) => patch<Sprint>(`/sprints/${id}`, changes),
+  remove: (id: ID) => del<{ id: ID; movedTasks: number }>(`/sprints/${id}`),
+  /** Start a planned sprint, optionally adjusting its details in the same step. */
+  start: (id: ID, fields: Partial<Pick<Sprint, "name" | "goal" | "startDate" | "endDate">> = {}) => post<Sprint>(`/sprints/${id}/start`, fields),
+  /** Complete the active sprint. Unfinished work goes to `moveTo` (a planned sprint) or back to unscheduled when null. */
+  complete: (id: ID, moveTo: ID | null) => post<{ sprint: Sprint; movedTasks: number }>(`/sprints/${id}/complete`, { moveTo }),
+};
+
+export const companyService = {
+  list: () => get<CompanySummary[]>("/companies"),
 };
 
 /* Calendar */

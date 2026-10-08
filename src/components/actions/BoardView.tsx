@@ -1,32 +1,38 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Inbox, Pencil, Plus, SearchX, Trash2, XCircle } from "lucide-react";
-import { Button } from "@/components/buttons/Button";
+import { CalendarDays, Check, Flag, Inbox, ListTodo, Pencil, Plus, Rocket, SearchX, Target, Trash2, XCircle } from "lucide-react";
+import { Button, buttonClass } from "@/components/buttons/Button";
 import { Card } from "@/components/cards/Card";
 import { Dropdown } from "@/components/forms/Dropdown";
 import { SearchInput } from "@/components/forms/Inputs";
 import { ConfirmDialog } from "@/components/modals/ConfirmDialog";
 import { Avatar } from "@/components/shared/Avatar";
 import { ProgressBar } from "@/components/shared/ProgressBar";
-import { EmptyState, ErrorState, LoadingState } from "@/components/shared/States";
+import { EmptyState } from "@/components/shared/States";
 import { Tag } from "@/components/shared/Tag";
-import { TaskFormModal } from "./TaskFormModal";
-import { PRIORITY_OPTIONS, STATUS_COLUMNS, priorityLabel, statusLabel } from "./taskMeta";
+import { getCompany } from "@/config/companies";
 import { useApp } from "@/providers/AppProvider";
 import { useToast } from "@/providers/ToastProvider";
 import { useParamSelection } from "@/hooks/useParamSelection";
-import { useResource } from "@/hooks/useResource";
 import { errorMessage, taskService } from "@/services";
+import { countByStatus, daysLeftText, percentDone, sprintRange } from "@/lib/board";
 import { dateKey, formatKeyShort } from "@/lib/time";
 import { cx } from "@/lib/utils";
-import type { Task, TaskStatus, TeamMember } from "@/types/models";
+import type { Sprint, Task, TaskStatus, TeamMember } from "@/types/models";
+import { useActions } from "./ActionsData";
+import { CompleteSprintModal, SprintFormModal } from "./SprintModals";
+import { TaskFormModal } from "./TaskFormModal";
+import { PRIORITY_OPTIONS, STATUS_COLUMNS, priorityLabel } from "./taskMeta";
 import styles from "./Actions.module.css";
 
-export function ActionsBoard() {
+/** The company's board: the active sprint's work in four columns (To Do · In Progress · Review · Done). */
+export function BoardView() {
+  const { company, tasks, sprints, activeSprint, flash, moveTask, setTaskSprint, upsertTask, removeTask, upsertSprint, refreshSprints, refreshTasks } = useActions();
   const { members, primaryZone } = useApp();
   const toast = useToast();
-  const tasks = useResource(taskService.list);
+  const co = getCompany(company);
   const [paramSel, setSel] = useParamSelection("task");
 
   const [query, setQuery] = useState("");
@@ -38,12 +44,17 @@ export function ActionsBoard() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [deleting, setDeleting] = useState<Task | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [sprintForm, setSprintForm] = useState<"start" | "create" | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<TaskStatus | null>(null);
 
-  const all = tasks.data ?? [];
   const byId = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
   const todayKey = dateKey(new Date(), primaryZone.tz);
+
+  // The board holds the active sprint's work — nothing else.
+  const all = useMemo(() => (activeSprint ? tasks.filter((t) => t.sprintId === activeSprint.id) : []), [tasks, activeSprint]);
+  const planned = sprints.filter((s) => s.status === "planned");
 
   const q = query.trim().toLowerCase();
   const visible = all.filter(
@@ -69,26 +80,12 @@ export function ActionsBoard() {
     setPriority("all");
   };
 
-  /** Optimistic status change with rollback. Used by drag-and-drop and the Status dropdown. */
-  const moveTask = async (id: string, next: TaskStatus) => {
-    const prev = all.find((t) => t.id === id);
-    if (!prev || prev.status === next) return;
-    tasks.setData((cur) => cur?.map((t) => (t.id === id ? { ...t, status: next } : t)));
-    try {
-      await taskService.update(id, { status: next });
-      toast.success(`${prev.key} moved to ${statusLabel(next)}`);
-    } catch (e) {
-      tasks.setData((cur) => cur?.map((t) => (t.id === id ? { ...t, status: prev.status } : t)));
-      toast.error(errorMessage(e));
-    }
-  };
-
   const confirmDelete = async () => {
     if (!deleting) return;
     setDeleteBusy(true);
     try {
       await taskService.remove(deleting.id);
-      tasks.setData((cur) => cur?.filter((t) => t.id !== deleting.id));
+      removeTask(deleting.id);
       toast.success("Task deleted");
       setDeleting(null);
     } catch (e) {
@@ -100,15 +97,66 @@ export function ActionsBoard() {
   };
 
   const onSaved = (saved: Task, mode: "created" | "updated") => {
-    tasks.setData((cur) => (mode === "created" ? [...(cur ?? []), saved] : cur?.map((t) => (t.id === saved.id ? saved : t))));
-    setSel(saved.id);
+    if (saved.companyId !== company) {
+      removeTask(saved.id); // it now belongs to another company's board
+      return toast.success(`${saved.key} is now in ${getCompany(saved.companyId).code}`);
+    }
+    upsertTask(saved);
+    if (saved.sprintId === activeSprint?.id) setSel(saved.id);
+    else {
+      if (selectedId === saved.id) setSel(null);
+      if (mode === "created") toast.success(`${saved.key} was added outside the active sprint — find it under Sprints.`);
+    }
   };
 
-  if (tasks.loading) return <LoadingState label="Loading tasks…" />;
-  if (tasks.error && !tasks.data) return <ErrorState message={tasks.error} onRetry={tasks.reload} />;
+  if (!activeSprint) {
+    return (
+      <>
+        <Card variant="neutral">
+          <EmptyState
+            icon={<Rocket size={22} />}
+            title={`No active sprint for ${co.code}`}
+            description={planned.length ? `Start ${planned[0].name} to put its work on the ${co.code} board.` : `Plan a sprint to organise ${co.code}'s work into a time period. The board shows whatever is in the active sprint.`}
+            action={
+              <div className={styles.emptyActions}>
+                {planned.length ? (
+                  <Button variant="primary" icon={<Rocket size={16} />} onClick={() => setSprintForm("start")}>
+                    Start {planned[0].name}
+                  </Button>
+                ) : (
+                  <Button variant="primary" icon={<Plus size={16} />} onClick={() => setSprintForm("create")}>
+                    Create sprint
+                  </Button>
+                )}
+                <Link href={`/actions/${company}/sprints`} className={buttonClass({ variant: "outline" })}>
+                  <ListTodo size={16} /> Open sprints
+                </Link>
+              </div>
+            }
+          />
+        </Card>
+        <SprintFormModal
+          open={sprintForm !== null}
+          mode={sprintForm === "create" ? "create" : "start"}
+          companyId={company}
+          sprint={sprintForm === "start" ? planned[0] : undefined}
+          taskCount={planned[0] ? tasks.filter((t) => t.sprintId === planned[0].id).length : 0}
+          onClose={() => setSprintForm(null)}
+          onDone={(s) => {
+            upsertSprint(s);
+            void refreshSprints();
+          }}
+        />
+      </>
+    );
+  }
+
+  const counts = countByStatus(all);
 
   return (
     <div className={styles.page}>
+      <SprintBar sprint={activeSprint} counts={counts} todayKey={todayKey} companyId={company} onComplete={() => setCompleteOpen(true)} />
+
       <div className={styles.filters}>
         <SearchInput className="" wrapperClassName={styles.search} placeholder="Search tickets…" aria-label="Search tickets" value={query} onChange={(e) => setQuery(e.target.value)} />
         <Dropdown
@@ -117,28 +165,10 @@ export function ActionsBoard() {
           value={assignee}
           displayLabel={assignee === "all" ? "Assignee" : undefined}
           onChange={setAssignee}
-          options={[
-            { value: "all", label: "All assignees" },
-            ...members.map((m) => ({ value: m.id, label: m.name })),
-            { value: "none", label: "Unassigned" },
-          ]}
+          options={[{ value: "all", label: "All assignees" }, ...members.map((m) => ({ value: m.id, label: m.name })), { value: "none", label: "Unassigned" }]}
         />
-        <Dropdown
-          variant="filter"
-          ariaLabel="Filter by status"
-          value={status}
-          displayLabel={status === "all" ? "Status" : undefined}
-          onChange={setStatus}
-          options={[{ value: "all", label: "All statuses" }, ...STATUS_COLUMNS]}
-        />
-        <Dropdown
-          variant="filter"
-          ariaLabel="Filter by priority"
-          value={priority}
-          displayLabel={priority === "all" ? "Priority" : undefined}
-          onChange={setPriority}
-          options={[{ value: "all", label: "All priorities" }, ...PRIORITY_OPTIONS]}
-        />
+        <Dropdown variant="filter" ariaLabel="Filter by status" value={status} displayLabel={status === "all" ? "Status" : undefined} onChange={setStatus} options={[{ value: "all", label: "All statuses" }, ...STATUS_COLUMNS]} />
+        <Dropdown variant="filter" ariaLabel="Filter by priority" value={priority} displayLabel={priority === "all" ? "Priority" : undefined} onChange={setPriority} options={[{ value: "all", label: "All priorities" }, ...PRIORITY_OPTIONS]} />
         {filtersActive && (
           <Button variant="ghost" onClick={clearFilters}>
             Clear filters
@@ -154,12 +184,17 @@ export function ActionsBoard() {
         <Card variant="neutral">
           <EmptyState
             icon={<Inbox size={22} />}
-            title="No tasks yet"
-            description="Create your first task to start tracking work across the board."
+            title={`${activeSprint.name} is empty`}
+            description="Create a task here, or plan existing work into this sprint from the Sprints screen."
             action={
-              <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreateOpen(true)}>
-                Create Task
-              </Button>
+              <div className={styles.emptyActions}>
+                <Button variant="primary" icon={<Plus size={16} />} onClick={() => setCreateOpen(true)}>
+                  Create Task
+                </Button>
+                <Link href={`/actions/${company}/sprints`} className={buttonClass({ variant: "outline" })}>
+                  <ListTodo size={16} /> Plan from Sprints
+                </Link>
+              </div>
             }
           />
         </Card>
@@ -185,6 +220,7 @@ export function ActionsBoard() {
                 key={col.value}
                 className={cx(styles.column, overColumn === col.value && styles.columnOver)}
                 aria-label={`${col.label}, ${items.length} tasks`}
+                data-status={col.value}
                 onDragOver={(e) => {
                   if (!dragId) return;
                   e.preventDefault();
@@ -213,8 +249,9 @@ export function ActionsBoard() {
                       task={t}
                       assignee={t.assigneeId ? byId.get(t.assigneeId) : undefined}
                       selected={t.id === selectedId && panelOpen}
-                      overdue={t.dueDate < todayKey}
+                      overdue={t.dueDate < todayKey && t.status !== "done"}
                       dragging={dragId === t.id}
+                      flashing={flash.has(t.id)}
                       onSelect={() => setSel(t.id)}
                       onDragStart={() => setDragId(t.id)}
                       onDragEnd={() => {
@@ -233,18 +270,33 @@ export function ActionsBoard() {
             <TaskDetails
               task={selected}
               assignee={selected.assigneeId ? byId.get(selected.assigneeId) : undefined}
+              sprints={sprints.filter((s) => s.status !== "completed")}
               onClose={() => setSel(null)}
               onEdit={() => setEditing(selected)}
               onDelete={() => setDeleting(selected)}
               onMove={(s) => void moveTask(selected.id, s)}
-              overdue={selected.dueDate < todayKey}
+              onSprint={async (sprintId) => {
+                if ((await setTaskSprint(selected.id, sprintId)) && sprintId !== activeSprint.id) setSel(null); // it left this board
+              }}
+              overdue={selected.dueDate < todayKey && selected.status !== "done"}
             />
           )}
         </div>
       )}
 
-      <TaskFormModal open={createOpen} onClose={() => setCreateOpen(false)} onSaved={onSaved} />
+      <TaskFormModal open={createOpen} companyId={company} sprintId={activeSprint.id} onClose={() => setCreateOpen(false)} onSaved={onSaved} />
       <TaskFormModal open={!!editing} task={editing ?? undefined} onClose={() => setEditing(null)} onSaved={onSaved} />
+      <CompleteSprintModal
+        open={completeOpen}
+        sprint={activeSprint}
+        tasks={all}
+        planned={planned}
+        onClose={() => setCompleteOpen(false)}
+        onDone={() => {
+          void refreshSprints();
+          void refreshTasks();
+        }}
+      />
       <ConfirmDialog
         open={!!deleting}
         title="Delete task?"
@@ -269,18 +321,56 @@ export function ActionsBoard() {
 
 /* ------------------------------------------------------------------ */
 
+function SprintBar({ sprint, counts, todayKey, companyId, onComplete }: { sprint: Sprint; counts: ReturnType<typeof countByStatus>; todayKey: string; companyId: string; onComplete: () => void }) {
+  const pct = percentDone(counts);
+  return (
+    <Card variant="royal" className={styles.sprintBar} aria-label="Active sprint">
+      <div className={styles.sprintBarTop}>
+        <div className={styles.sprintBarTitle}>
+          <h2 className={styles.sprintName}>{sprint.name}</h2>
+          <Tag tone="active">Active</Tag>
+          <span className={styles.sprintDates}>
+            <CalendarDays size={14} aria-hidden="true" /> {sprintRange(sprint)} · <strong>{daysLeftText(sprint, todayKey)}</strong>
+          </span>
+        </div>
+        <div className={styles.sprintBarActions}>
+          <Link href={`/actions/${companyId}/sprints`} className={buttonClass({ variant: "outline", size: "sm" })}>
+            <ListTodo size={15} /> Sprints
+          </Link>
+          <Button variant="primary" size="sm" icon={<Flag size={15} />} onClick={onComplete}>
+            Complete sprint
+          </Button>
+        </div>
+      </div>
+      {sprint.goal && (
+        <p className={styles.sprintGoal}>
+          <Target size={14} aria-hidden="true" /> {sprint.goal}
+        </p>
+      )}
+      <div className={styles.sprintProgress}>
+        <ProgressBar value={pct} label={`${sprint.name} progress`} />
+        <span>
+          {counts.done} of {counts.total} done · {counts["in-progress"]} in progress · {counts.review} in review · {counts.todo} to do
+        </span>
+      </div>
+    </Card>
+  );
+}
+
 interface TaskCardProps {
   task: Task;
   assignee?: TeamMember;
   selected: boolean;
   overdue: boolean;
   dragging: boolean;
+  flashing: boolean;
   onSelect: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
 }
 
-function TaskCard({ task, assignee, selected, overdue, dragging, onSelect, onDragStart, onDragEnd }: TaskCardProps) {
+function TaskCard({ task, assignee, selected, overdue, dragging, flashing, onSelect, onDragStart, onDragEnd }: TaskCardProps) {
+  const done = task.status === "done";
   return (
     <article
       role="button"
@@ -288,7 +378,8 @@ function TaskCard({ task, assignee, selected, overdue, dragging, onSelect, onDra
       draggable
       aria-pressed={selected}
       aria-label={`${task.key} ${task.title}, ${priorityLabel(task.priority)} priority, ${task.progress}% done`}
-      className={cx(styles.card, selected && styles.cardSelected, dragging && styles.dragging)}
+      data-task-id={task.id}
+      className={cx(styles.card, selected && styles.cardSelected, dragging && styles.dragging, flashing && styles.cardFlash, done && styles.cardDone)}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -316,7 +407,9 @@ function TaskCard({ task, assignee, selected, overdue, dragging, onSelect, onDra
         <ProgressBar value={task.progress} label={`${task.key} progress`} />
       </div>
       <div className={styles.cardFoot}>
-        <span className={styles.ticket}>#{task.key}</span>
+        <span className={styles.ticket}>
+          {done && <Check size={12} aria-label="Done" className={styles.doneCheck} />}#{task.key}
+        </span>
         {assignee ? <Avatar initials={assignee.initials} size={24} /> : <span className={styles.ticket}>Unassigned</span>}
       </div>
     </article>
@@ -327,13 +420,16 @@ interface TaskDetailsProps {
   task: Task;
   assignee?: TeamMember;
   overdue: boolean;
+  /** Sprints this task can be planned into (not completed ones). */
+  sprints: Sprint[];
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onMove: (status: TaskStatus) => void;
+  onSprint: (sprintId: string | null) => void | Promise<void>;
 }
 
-function TaskDetails({ task, assignee, overdue, onClose, onEdit, onDelete, onMove }: TaskDetailsProps) {
+function TaskDetails({ task, assignee, overdue, sprints, onClose, onEdit, onDelete, onMove, onSprint }: TaskDetailsProps) {
   return (
     <Card variant="royal" as="aside" className={styles.panel} aria-label="Task details">
       <div className={styles.panelHead}>
@@ -370,6 +466,16 @@ function TaskDetails({ task, assignee, overdue, onClose, onEdit, onDelete, onMov
       <div>
         <p className={cx("section-label", styles.fieldLabel)}>Status</p>
         <Dropdown ariaLabel="Move task to status" value={task.status} onChange={onMove} options={STATUS_COLUMNS} />
+      </div>
+
+      <div>
+        <p className={cx("section-label", styles.fieldLabel)}>Sprint</p>
+        <Dropdown
+          ariaLabel="Move task to sprint"
+          value={task.sprintId ?? ""}
+          onChange={(v) => void onSprint(v || null)}
+          options={[{ value: "", label: "Unscheduled (leave the board)" }, ...sprints.map((s) => ({ value: s.id, label: `${s.name}${s.status === "active" ? " (active)" : ""}` }))]}
+        />
       </div>
 
       <div className={styles.metaRow}>

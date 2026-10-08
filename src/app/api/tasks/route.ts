@@ -1,29 +1,41 @@
 import { getDb, logActivity, mutateDb } from "@/server/db";
-import { fail, ok, readJson, str } from "@/server/http";
-import { parseTaskFields } from "./validate";
-import type { Task } from "@/types/models";
+import { fail, ok, readJson } from "@/server/http";
+import { createTask, parseTaskFields, taskHref } from "@/server/actions";
+import { publishTasks } from "@/server/actions-events";
+import { isCompanyId } from "@/config/companies";
 import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
-export const GET = authed(async () => {
-  return ok((await getDb()).tasks);
+/**
+ * GET — tasks. Optional filters: ?company=boss · ?sprint=<id> (or "none" for unscheduled) · ?ids=a,b,c (used to apply live updates).
+ */
+export const GET = authed(async (req: Request) => {
+  const q = new URL(req.url).searchParams;
+  const company = q.get("company");
+  if (company && !isCompanyId(company)) return fail("Unknown company", 400);
+  const ids = q.get("ids");
+  const sprint = q.get("sprint");
+  const wanted = ids ? new Set(ids.split(",").filter(Boolean).slice(0, 200)) : null;
+  const tasks = (await getDb()).tasks.filter(
+    (t) => (!wanted || wanted.has(t.id)) && (!company || t.companyId === company) && (!sprint || (sprint === "none" ? t.sprintId === null : t.sprintId === sprint)),
+  );
+  return ok(tasks);
 });
 
+/** POST — create a task. `sprintId` omitted → the company's active sprint; `null` → unscheduled. */
 export const POST = authed(async (req: Request, _ctx, me) => {
   const body = await readJson(req);
   if (!body) return fail("Invalid request body");
-  if (!str(body.title)) return fail("Title is required");
-  return mutateDb((db) => {
+  if (typeof body.title !== "string" || !body.title.trim()) return fail("Title is required");
+  const task = await mutateDb((db) => {
     const parsed = parseTaskFields(db, body);
-    if ("error" in parsed) return fail(parsed.error);
-    const n = db.nextTicket++;
-    const task: Task = {
-      id: `t-${n}`, key: `TB-${n}`, title: str(body.title), description: "", status: "todo", priority: "medium",
-      dueDate: new Date().toISOString().slice(0, 10), progress: 0, assigneeId: null, ...parsed.fields,
-    };
-    db.tasks.push(task);
-    logActivity(db, me, { text: "created", object: task.title, objectHref: `/actions?task=${task.id}`, objectTone: "link" });
-    return ok(task, 201);
+    if (!parsed.ok) return parsed;
+    const created = createTask(db, parsed.fields, me.id, new Date().toISOString());
+    if (created.ok) logActivity(db, me, { text: "created", object: created.task.title, objectHref: taskHref(db, created.task), objectTone: "link" });
+    return created;
   });
+  if (!task.ok) return fail(task.error, task.status);
+  publishTasks(task.task.companyId, "created", [task.task.id], me);
+  return ok(task.task, 201);
 });

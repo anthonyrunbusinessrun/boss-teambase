@@ -1,10 +1,10 @@
 import type { Priority, TaskStatus } from "@/types/models";
 
 export const STATUS_COLUMNS: { value: TaskStatus; label: string }[] = [
-  { value: "backlog", label: "Backlog" },
   { value: "todo", label: "To Do" },
   { value: "in-progress", label: "In Progress" },
   { value: "review", label: "Review" },
+  { value: "done", label: "Done" },
 ];
 
 export const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [

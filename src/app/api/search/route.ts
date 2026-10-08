@@ -1,3 +1,4 @@
+import { taskHref } from "@/server/actions";
 import { getDb } from "@/server/db";
 import { ok } from "@/server/http";
 import type { SearchResult } from "@/types/models";
@@ -26,7 +27,7 @@ export const GET = authed(async (req: Request) => {
   db.tasks
     .filter((t) => has(q, t.title, t.key, t.description))
     .slice(0, 4)
-    .forEach((t) => out.push({ id: t.id, group: "Actions", title: t.title, subtitle: `#${t.key}`, href: `/actions?task=${t.id}` }));
+    .forEach((t) => out.push({ id: t.id, group: "Actions", title: t.title, subtitle: `#${t.key}`, href: taskHref(db, t) }));
 
   db.events
     .filter((e) => has(q, e.title, e.location))

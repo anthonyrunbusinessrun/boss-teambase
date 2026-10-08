@@ -39,9 +39,9 @@ Copy `.env.example` to `.env.local` to set these values.
 
 | Screen | Route | Notes |
 |---|---|---|
-| Dashboard | `/` | Live greeting, KPIs (move with the task board), activity feed, quick actions, today's agenda |
+| Dashboard | `/` | Live greeting, KPIs (move with the work in the active sprints), activity feed, quick actions, today's agenda |
 | Channels | `/channels` | Channels + private DMs, live online status and typing, Sent/Delivered/Seen, formatted messages, attachment previews + downloads, reactions, in-thread search, pin to favorites |
-| Actions | `/actions` | Kanban with drag-and-drop, filters, task details panel, create / edit / delete |
+| Actions | `/actions/[company]/board` · `/actions/[company]/sprints` | Three company folders (BOSS · RLI · LL), each with its own **Board** (the active sprint in four columns) and its own **Sprints** (plan, start, complete); live updates; drag-and-drop, filters, task details, create / edit / delete |
 | Calendar | `/calendar` | Month / Week / Day, add / edit / delete events and meetings, team availability |
 | Team Directory | `/team` | Search + filters, member cards, org chart built from reporting lines, add / edit / delete members |
 | Document Center | `/reports` | Template cards, live preview, create draft, **Export PDF** (prints the preview sheet) |
@@ -64,6 +64,7 @@ UI components  ──►  src/services  ──►  /api route handlers  ──�
 - `src/app/api/**` — Node route handlers with validation. They only call `getDb()` and its helpers.
 - `src/server/db.ts` — transactional PostgreSQL persistence with a no-config local fallback.
 - `src/server/chat.ts` — the messaging **rules** as pure functions (who is registered, who may see a DM, receipts, unread, status). Unit-tested.
+- `src/server/actions.ts` — the Actions **rules** as pure functions (companies, sprint lifecycle, placement, upgrade of old boards). Unit-tested. `src/server/actions-events.ts` publishes live board changes. `src/lib/board.ts` — the client's pure board helpers (merging live updates by revision, sprint dates).
 - `src/server/realtime.ts` — the live-connection hub: presence, typing, event fan-out across server replicas.
 - `src/server/files.ts` — attachment storage and byte-level file-type detection. `src/server/chat-events.ts` — publishing helpers.
 - `src/server/auth.ts` — session tokens and `authed()`, which wraps every protected API route.
@@ -114,6 +115,39 @@ The Sarah / John / Liam placeholder DMs stay visible to everyone but have no pre
 **Behaviour changes worth knowing.** Unread counts are now per person (they used to be one number shared by everyone). Reactions are per person
 (they used to share one "you reacted" flag). Typing and presence are real (the old `typingUser` demo value is gone).
 
+### Actions: companies, boards and sprints
+
+**Organization.** Actions has three top-level sections — **BOSS** (Business Operating Systems Solutions), **RLI** (Rayland Inc.) and **LL** (Land Logistics) —
+shown as folder cards across the top. Every task and every sprint belongs to exactly one company, so each company has its **own Board and its own Sprints**.
+Switching folder keeps you on the same view; the app remembers the last company you used. Companies are fixed in `src/config/companies.ts`.
+
+**Jira-style workflow.** A *sprint* is a time period (planned → active → completed). The **Board** shows the company's **active sprint** in four columns;
+the **Sprints** screen is where work is organised into sprints:
+
+1. *Plan* — create a sprint (name, goal, dates), then drag tasks into it (or use each row's **Move to** menu, the keyboard alternative).
+2. *Start* — one active sprint per company. Starting another is refused with the reason; other companies run theirs independently.
+3. *Run* — the board shows that sprint's work, with its dates, days left and progress.
+4. *Complete* — finished work stays in the sprint as its record; you choose where unfinished work goes (a planned sprint, or back to **Unscheduled**).
+
+Work that isn't in any sprint is **Unscheduled**. That is *not* a status — there is no Backlog anywhere. Planned sprints can be edited and deleted
+(their work returns to Unscheduled); active sprints can be edited and completed; completed sprints are read-only.
+
+**Four statuses only:** To Do · In Progress · Review · Done. Moving a card to Done sets it to 100%; moving it out of Done never leaves a 100% task in an
+open column. Tickets created from now on are keyed by company (`BOSS-49`, `RLI-55`, `LL-60`); older `TB-…` keys are unchanged.
+
+**Real time.** The board and the sprints screen update on their own when anyone moves, edits, creates or deletes a task, or plans/starts/completes a sprint — no
+refreshing. It uses the same live connection as Channels (`task` and `sprint` events, fanned out across server replicas with PostgreSQL `LISTEN/NOTIFY`).
+A **Live** badge shows the connection state, other people's changes are highlighted and announced ("Bob moved BOSS-49 to Review"), and if the connection
+drops the board stays on screen and catches up when it returns. Every task carries a revision number, so a late-arriving older update can never overwrite a
+newer change. Two people editing the same task: the last save wins (each save is applied in order).
+
+**Upgrading existing data.** Done automatically at server start, once: a board saved before sprints existed becomes BOSS's **Sprint 1** (active) holding all
+the old tasks, so nothing disappears; tasks saved as *Backlog* become *To Do*. RLI and LL start empty — create a sprint to begin.
+
+**Behaviour changes worth knowing.** The board no longer lists every task: it lists the active sprint's. A "critical actions" count and the dashboard KPIs
+look at the work in active sprints (not Done). Creating a task defaults to the company's active sprint. Moving a task to another company (Edit → Company) puts
+it in that company's active sprint and gives it a new ticket key.
+
 ### Adding Screens 5 and 6 later
 Replace the `ComingSoon` in `src/app/projects/page.tsx` / `src/app/ai-command/page.tsx`. Routes, sidebar items and titles already exist.
 
@@ -149,10 +183,12 @@ Replace the `ComingSoon` in `src/app/projects/page.tsx` / `src/app/ai-command/pa
 
 ## Testing
 
-Current suites (they need a PostgreSQL `DATABASE_URL`, a production build, and `pip install playwright && playwright install chromium` for the browser one):
+Current suites (each integration suite expects a freshly seeded database; they need a PostgreSQL `DATABASE_URL`, a production build, and `pip install playwright && playwright install chromium` for the browser one):
 
 ```bash
 npx tsx src/server/chat.test.ts            # messaging rules + helpers (no database needed)
+npx tsx src/server/actions.test.ts         # companies, sprints, task placement, upgrade rules
+npx tsx src/lib/board.test.ts              # live-update merging, change announcements, sprint dates
 npx tsx src/lib/calendar.test.ts           # date/time maths
 npx tsx src/lib/auth.test.ts               # redirect guard, token decoding
 
@@ -163,6 +199,9 @@ BASE=http://localhost:3201 node qa/api/channels.test.mjs           # backend ove
 A=http://localhost:3201 B=http://localhost:3202 PID_B=/tmp/pid3202 \
   node qa/api/multi-instance.test.mjs                              # two servers, one database, incl. a hard crash (10 checks)
 BASE=http://localhost:3201 python3 qa/browser/channels.py          # real browser, several signed-in users (55 checks)
+BASE=http://localhost:3201 node qa/api/actions.test.mjs            # Actions backend: companies, statuses, sprints, live events (33 checks)
+BASE=http://localhost:3201 python3 qa/browser/actions.py           # Actions in a real browser, two people at once (49 checks)
+node qa/api/upgrade.test.mjs                                       # starts/stops servers: a pre-sprint board upgrades at startup (6 checks)
 ```
 
 `qa/support/seed-accounts.mjs` creates accounts with a **known test password** — never run it against a real database.

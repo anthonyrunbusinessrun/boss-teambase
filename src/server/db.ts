@@ -10,6 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { migrateLegacyBoard, normalizeActions } from "./actions";
 import { normalizeChat } from "./chat";
 import { zonedParts, zonedTimeToUtc } from "@/lib/time";
 import { makeInitials } from "@/lib/utils";
@@ -23,6 +24,7 @@ import type {
   ReportDraft,
   ReportTemplate,
   Settings,
+  Sprint,
   SystemMeters,
   Task,
   TeamMember,
@@ -49,6 +51,7 @@ export interface Db {
   members: TeamMember[];
   accounts: Account[];
   tasks: Task[];
+  sprints: Sprint[];
   events: CalendarEvent[];
   conversations: Conversation[];
   messages: Record<ID, ChatMessage[]>;
@@ -103,30 +106,59 @@ function seed(): Db {
 
   const task = (
     n: number,
+    key: string,
     title: string,
+    companyId: Task["companyId"],
+    sprintId: ID | null,
     status: Task["status"],
     priority: Task["priority"],
     dueOffset: number,
     progress: number,
-    assigneeId: ID,
+    assigneeId: ID | null,
     description: string,
-  ): Task => ({ id: `t-${n}`, key: `TB-${n}`, title, status, priority, dueDate: dateOnly(dueOffset), progress, assigneeId, description });
+  ): Task => ({ id: `t-${n}`, key, title, description, companyId, sprintId, status, priority, dueDate: dateOnly(dueOffset), progress, assigneeId, rev: 1, updatedAt: minsAgo(24 * 60) });
+
+  const sprint = (id: ID, companyId: Sprint["companyId"], number: number, status: Sprint["status"], startOffset: number, endOffset: number, goal: string, extra: Partial<Sprint> = {}): Sprint => ({
+    id, companyId, number, name: `Sprint ${number}`, goal, status, startDate: dateOnly(startOffset), endDate: dateOnly(endOffset), ...extra,
+  });
+
+  // Each company has its own sprints; the board shows the active one.
+  const sprints: Sprint[] = [
+    sprint("sp-boss-1", "boss", 1, "completed", -28, -15, "Foundations: CI, sign-in and the design tokens", { startedAt: at(-28, 9), completedAt: at(-15, 17), summary: { total: 3, done: 3, moved: 0 } }),
+    sprint("sp-boss-2", "boss", 2, "active", -6, 7, "Ship the Actions board and the Channels revamp", { startedAt: at(-6, 9) }),
+    sprint("sp-boss-3", "boss", 3, "planned", 8, 21, "Notifications and reporting polish"),
+    sprint("sp-rli-1", "rli", 1, "active", -4, 9, "Close the quarter: budget, vendors and reporting", { startedAt: at(-4, 9) }),
+    sprint("sp-ll-1", "ll", 1, "active", -3, 10, "Stabilise routes and fleet upkeep", { startedAt: at(-3, 9) }),
+    sprint("sp-ll-2", "ll", 2, "planned", 11, 24, "Warehouse intake and driver onboarding"),
+  ];
 
   const tasks: Task[] = [
-    task(44, "Database Index Tuning", "backlog", "medium", 2, 0, "m-stad", "Review slow queries and add the missing indexes."),
-    task(45, "Docker Compose Setup", "backlog", "low", 6, 0, "m-joseph", "Containerize the local development stack."),
-    task(46, "API Payload Validation", "todo", "high", 0, 15, "m-joseph", "Validate request payloads at the API boundary."),
-    task(
-      48,
-      "Actions Panel Refactor",
-      "in-progress",
-      "high",
-      -2,
-      65,
-      "m-stad",
-      "Rebuilding the Jira bento Kanban architecture to strictly support fluid cross-axis layouts and precise material design shadows.",
-    ),
-    task(47, "Budget Service Integration Audit", "review", "medium", -3, 90, "m-stad", "Audit the budget service integration before sign-off."),
+    // BOSS — Sprint 2 (active)
+    task(44, "TB-44", "Database Index Tuning", "boss", "sp-boss-2", "todo", "medium", 2, 0, "m-stad", "Review slow queries and add the missing indexes."),
+    task(45, "TB-45", "Docker Compose Setup", "boss", "sp-boss-2", "todo", "low", 6, 0, "m-joseph", "Containerize the local development stack."),
+    task(46, "TB-46", "API Payload Validation", "boss", "sp-boss-2", "todo", "high", 0, 15, "m-joseph", "Validate request payloads at the API boundary."),
+    task(48, "TB-48", "Actions Panel Refactor", "boss", "sp-boss-2", "in-progress", "high", -2, 65, "m-stad", "Rebuilding the Jira bento Kanban architecture to strictly support fluid cross-axis layouts and precise material design shadows."),
+    task(47, "TB-47", "Budget Service Integration Audit", "boss", "sp-boss-2", "review", "medium", -3, 90, "m-stad", "Audit the budget service integration before sign-off."),
+    task(49, "BOSS-49", "Design token audit", "boss", "sp-boss-2", "done", "low", -4, 100, "m-stad", "Verified every colour and spacing token against the design system."),
+    // BOSS — Sprint 3 (planned) and unscheduled
+    task(50, "BOSS-50", "Notification preferences screen", "boss", "sp-boss-3", "todo", "medium", 12, 0, "m-andrea", "Let people choose what shows up in the bell."),
+    task(51, "BOSS-51", "Document the realtime architecture", "boss", null, "todo", "low", 20, 0, null, "How presence, typing and board updates reach every browser."),
+    // BOSS — Sprint 1 (completed)
+    task(52, "BOSS-52", "Set up the CI pipeline", "boss", "sp-boss-1", "done", "high", -20, 100, "m-joseph", "Lint, type-check and build on every push."),
+    task(53, "BOSS-53", "Sign-in page", "boss", "sp-boss-1", "done", "medium", -18, 100, "m-stad", "Email and password sign-in."),
+    task(54, "BOSS-54", "Design system tokens", "boss", "sp-boss-1", "done", "medium", -17, 100, "m-stad", "Colours, type and spacing as CSS variables."),
+    // RLI — Sprint 1 (active) and unscheduled
+    task(55, "RLI-55", "Q4 budget review", "rli", "sp-rli-1", "in-progress", "high", 2, 55, "m-ereika", "Review departmental budgets against the Q4 forecast."),
+    task(56, "RLI-56", "Vendor contract renewals", "rli", "sp-rli-1", "todo", "medium", 5, 0, "m-ray", "Renegotiate the three contracts that expire this quarter."),
+    task(57, "RLI-57", "Publish the quarterly report", "rli", "sp-rli-1", "review", "medium", 1, 85, "m-andrea", "Final read-through before it goes to the board."),
+    task(58, "RLI-58", "Close the September books", "rli", "sp-rli-1", "done", "high", -3, 100, "m-ereika", "Reconcile accounts and sign off the month."),
+    task(59, "RLI-59", "Review insurance coverage", "rli", null, "todo", "low", 25, 0, null, "Compare current cover with the new headcount."),
+    // LL — Sprint 1 (active), Sprint 2 (planned)
+    task(60, "LL-60", "Route optimisation audit", "ll", "sp-ll-1", "in-progress", "high", 3, 40, "m-benj", "Find the routes that burn the most fuel per delivery."),
+    task(61, "LL-61", "Fleet maintenance schedule", "ll", "sp-ll-1", "todo", "medium", 4, 0, "m-shiela", "Plan service windows so no more than two trucks are out at once."),
+    task(62, "LL-62", "Warehouse intake checklist", "ll", "sp-ll-1", "review", "low", 2, 80, "m-shiela", "Standardise how incoming pallets are checked."),
+    task(63, "LL-63", "Driver onboarding pack", "ll", "sp-ll-1", "done", "medium", -2, 100, "m-benj", "Welcome guide, safety rules and route basics."),
+    task(64, "LL-64", "Fuel cost dashboard", "ll", "sp-ll-2", "todo", "medium", 15, 0, "m-benj", "Track fuel spend per route and per vehicle."),
   ];
 
   const ev = (
@@ -382,6 +414,7 @@ function seed(): Db {
     members,
     accounts,
     tasks,
+    sprints,
     events,
     conversations,
     messages,
@@ -397,7 +430,7 @@ function seed(): Db {
       secondaryZoneId: "chicago",
     },
     system: { apiVolume: { percent: 82 }, latency: { label: "Optimal", percent: 100 } },
-    nextTicket: 49,
+    nextTicket: 65,
   };
 }
 
@@ -428,6 +461,7 @@ function normalizeDb(value: Db): Db {
   value.accounts ??= [];
   value.members ??= [];
   value.tasks ??= [];
+  value.sprints ??= [];
   value.events ??= [];
   value.conversations ??= [];
   value.messages ??= {};
@@ -436,6 +470,7 @@ function normalizeDb(value: Db): Db {
   value.activity ??= [];
   value.notifications ??= [];
   value.nextTicket ??= 1;
+  normalizeActions(value);
   normalizeChat(value);
   return value;
 }
@@ -459,6 +494,13 @@ async function ensureSchema(): Promise<void> {
         `INSERT INTO teambase_state (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING`,
         [JSON.stringify(seed())],
       );
+      // Boards saved before sprints existed: the single old board becomes BOSS's "Sprint 1" (once, persisted).
+      await lock.query("BEGIN");
+      const current = await lock.query<{ data: Db }>("SELECT data FROM teambase_state WHERE id = 1 FOR UPDATE");
+      if (current.rows[0] && migrateLegacyBoard(current.rows[0].data, new Date().toISOString())) {
+        await lock.query("UPDATE teambase_state SET data = $1::jsonb, version = version + 1, updated_at = NOW() WHERE id = 1", [JSON.stringify(current.rows[0].data)]);
+      }
+      await lock.query("COMMIT");
       // Who is connected right now (one row per open browser connection; stale rows expire). Ephemeral by design:
       // presence changes every few seconds and must never go through the single locked state row.
       await lock.query(`

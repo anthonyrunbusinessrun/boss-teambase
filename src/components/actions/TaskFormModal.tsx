@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/buttons/Button";
 import { Dropdown } from "@/components/forms/Dropdown";
 import { Field, FormError } from "@/components/forms/Field";
@@ -9,10 +9,11 @@ import formStyles from "@/components/forms/forms.module.css";
 import { Modal } from "@/components/modals/Modal";
 import { useApp } from "@/providers/AppProvider";
 import { useToast } from "@/providers/ToastProvider";
-import { errorMessage, taskService } from "@/services";
+import { COMPANIES, DEFAULT_COMPANY } from "@/config/companies";
+import { errorMessage, sprintService, taskService } from "@/services";
 import { addDaysKey, dateKey } from "@/lib/time";
 import { PRIORITY_OPTIONS, STATUS_COLUMNS } from "./taskMeta";
-import type { Priority, Task, TaskStatus } from "@/types/models";
+import type { CompanyId, ID, Priority, Sprint, Task, TaskStatus } from "@/types/models";
 
 interface TaskFormModalProps {
   open: boolean;
@@ -20,6 +21,10 @@ interface TaskFormModalProps {
   /** Edit an existing task; omit to create. */
   task?: Task;
   defaultStatus?: TaskStatus;
+  /** For a new task: the company to create it in (default BOSS). */
+  companyId?: CompanyId;
+  /** For a new task: the sprint to plan it into. Omit for the company's active sprint; `null` for unscheduled. */
+  sprintId?: ID | null;
   onSaved?: (task: Task, mode: "created" | "updated") => void;
 }
 
@@ -28,7 +33,7 @@ export function TaskFormModal(props: TaskFormModalProps) {
   return props.open ? <TaskForm {...props} /> : null;
 }
 
-function TaskForm({ onClose, task, defaultStatus = "todo", onSaved }: TaskFormModalProps) {
+function TaskForm({ onClose, task, defaultStatus = "todo", companyId, sprintId, onSaved }: TaskFormModalProps) {
   const { members, me, primaryZone } = useApp();
   const toast = useToast();
   const editing = !!task;
@@ -39,10 +44,50 @@ function TaskForm({ onClose, task, defaultStatus = "todo", onSaved }: TaskFormMo
   const [dueDate, setDueDate] = useState(task?.dueDate ?? addDaysKey(dateKey(new Date(), primaryZone.tz), 7));
   const [assigneeId, setAssigneeId] = useState<string>(task ? (task.assigneeId ?? "") : me.id);
   const [progress, setProgress] = useState(task?.progress ?? 0);
+  const [company, setCompany] = useState<CompanyId>(task?.companyId ?? companyId ?? DEFAULT_COMPANY);
+  // "" = unscheduled (not in any sprint)
+  const [sprint, setSprint] = useState<string>(task ? (task.sprintId ?? "") : (sprintId ?? ""));
+  const [sprints, setSprints] = useState<Sprint[] | null>(null);
+  // For a new task we pick the company's active sprint ourselves, until you choose one.
+  const autoPick = useRef(!task && sprintId === undefined);
   const [titleError, setTitleError] = useState<string>();
   const [dateError, setDateError] = useState<string>();
   const [serverError, setServerError] = useState<string>();
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    sprintService
+      .list(company)
+      .then((list) => {
+        if (!alive) return;
+        setSprints(list);
+        if (autoPick.current) setSprint(list.find((s) => s.status === "active")?.id ?? "");
+      })
+      .catch(() => alive && setSprints([]));
+    return () => {
+      alive = false;
+    };
+  }, [company]);
+
+  const changeCompany = (next: CompanyId) => {
+    setCompany(next);
+    setSprints(null);
+    if (task && next === task.companyId) {
+      autoPick.current = false;
+      setSprint(task.sprintId ?? "");
+    } else {
+      autoPick.current = true; // the old sprint belongs to the old company
+      setSprint("");
+    }
+  };
+
+  const sprintOptions = [
+    { value: "", label: "Unscheduled (not in a sprint)" },
+    ...(sprints ?? [])
+      .filter((s) => s.status !== "completed" || s.id === task?.sprintId)
+      .map((s) => ({ value: s.id, label: `${s.name}${s.status === "active" ? " (active)" : s.status === "completed" ? " (completed)" : ""}` })),
+  ];
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +98,7 @@ function TaskForm({ onClose, task, defaultStatus = "todo", onSaved }: TaskFormMo
     if (tErr || dErr) return;
     setSaving(true);
     setServerError(undefined);
-    const payload = { title, description, status, priority, dueDate, progress, assigneeId: assigneeId || null };
+    const payload = { title, description, status, priority, dueDate, progress, assigneeId: assigneeId || null, companyId: company, sprintId: sprint || null };
     try {
       const saved = task ? await taskService.update(task.id, payload) : await taskService.create(payload);
       toast.success(task ? "Task updated" : "Task created");
@@ -90,6 +135,22 @@ function TaskForm({ onClose, task, defaultStatus = "todo", onSaved }: TaskFormMo
         <Field label="Description">
           <TextArea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Add context, links or acceptance criteria" />
         </Field>
+        <div className={formStyles.grid2}>
+          <Field label="Company">
+            <Dropdown ariaLabel="Company" value={company} onChange={changeCompany} options={COMPANIES.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` }))} />
+          </Field>
+          <Field label="Sprint">
+            <Dropdown
+              ariaLabel="Sprint"
+              value={sprint}
+              onChange={(v) => {
+                autoPick.current = false;
+                setSprint(v);
+              }}
+              options={sprintOptions}
+            />
+          </Field>
+        </div>
         <div className={formStyles.grid2}>
           <Field label="Status">
             <Dropdown ariaLabel="Status" value={status} onChange={setStatus} options={STATUS_COLUMNS} />

@@ -58,6 +58,15 @@ await test("concurrent writers on both instances lose nothing (row-locked state)
   await Promise.all(Array.from({ length: 20 }, (_, i) => post(i % 2 ? aliceB : bobB, `/channels/${dm}/messages`, { body: `burst-b ${i}` })));
   eq((await api(aliceA, `/channels/${dm}`)).json.messages.length - before, 60, "every message from both servers is stored");
 });
+await test("board changes cross instances: a card moved on A, a sprint started on B, both reach the other server's browsers", async () => {
+  const patch = (u, p, b) => api(u, p, { method: "PATCH", body: JSON.stringify(b) });
+  const from = sbB.mark(); await patch(aliceA, "/tasks/t-44", { status: "review" });
+  const t = await sbB.waitFor((x) => x.type === "task" && x.taskIds.includes("t-44") && x.change === "updated", { from }); assert(t, "B never heard about a task moved on A"); eq([t.companyId, t.by], ["boss", "Alice"]);
+  assert((await api(bobB, "/tasks?ids=t-44")).json[0].status === "review", "and B reads the new state from the shared database");
+  const s = (await post(bobB, "/sprints", { companyId: "ll", name: "Cross-server" })).json; const fromA = saA.mark();
+  await patch(bobB, `/sprints/${s.id}`, { goal: "g" }); assert(await saA.waitFor((x) => x.type === "sprint" && x.sprintId === s.id && x.change === "updated", { from: fromA }), "A never heard about a sprint edited on B");
+  await patch(aliceA, "/tasks/t-44", { status: "todo" });
+});
 await test("closing the last connection on B makes Bob offline on A (after the reload grace)", async () => {
   const from = saA.mark(); sbB.close();
   assert(await saA.waitFor((x) => x.type === "presence" && x.memberId === "m_bob" && !x.online, { from, ms: 10000 }), "A never saw Bob go offline");

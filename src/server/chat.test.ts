@@ -15,7 +15,7 @@ function db(): Db {
     members: ["a", "b", "c", "d", "e", "f"].map((id) => member(id, id.toUpperCase() + "-name")),
     accounts: [acct("a", REG), acct("b", REG), acct("c", REG), acct("d", { passwordHash: "h" }) /* unverified */, acct("e") /* seeded, no password */],
     // "f" has no account at all
-    tasks: [], events: [], conversations: [], messages: {}, templates: [], drafts: [], activity: [], notifications: [],
+    tasks: [], sprints: [], events: [], conversations: [], messages: {}, templates: [], drafts: [], activity: [], notifications: [],
     settings: {} as Db["settings"], system: {} as Db["system"], nextTicket: 1,
   };
 }
