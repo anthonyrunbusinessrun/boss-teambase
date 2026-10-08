@@ -1,6 +1,10 @@
 import { del, get, patch, post } from "./http";
+import { ApiError, sendToSignIn } from "./http";
+import { MAX_FILE_BYTES } from "@/lib/chat-limits";
 import type {
   ActivityItem,
+  Attachment,
+  ChannelMember,
   AppNotification,
   CalendarEvent,
   ChatMessage,
@@ -69,14 +73,59 @@ export const channelService = {
   list: () => get<ConversationList>("/channels"),
   create: (input: { name: string; description?: string; topic?: string }) => post<Conversation>("/channels", input),
   detail: (id: ID) => get<ConversationDetail>(`/channels/${id}`),
+  /** Specific messages as you see them — used to apply live updates without re-downloading the whole thread. */
+  messages: (id: ID, ids: ID[]) => get<{ messages: ChatMessage[] }>(`/channels/${id}/messages?ids=${ids.map(encodeURIComponent).join(",")}`),
   update: (id: ID, changes: Partial<Pick<Conversation, "name" | "description" | "topic">>) => patch<Conversation>(`/channels/${id}`, changes),
   remove: (id: ID) => del<{ id: ID }>(`/channels/${id}`),
+  /** "I'm looking at this conversation": marks what's addressed to you as Seen. */
+  markSeen: (id: ID) => post<{ changed: number }>(`/channels/${id}/seen`),
   markRead: (id: ID) => patch<Conversation>(`/channels/${id}`, { read: true }),
   setFavorite: (id: ID, favorite: boolean) => patch<Conversation>(`/channels/${id}`, { favorite }),
-  send: (id: ID, body: string, attachments: { name: string; size: number }[] = []) =>
-    post<ChatMessage>(`/channels/${id}/messages`, { body, attachments }),
+  /** Tell the other participants you are (or stopped) typing. Nothing is stored. */
+  typing: (id: ID, typing: boolean) => post<{ ok: true }>(`/channels/${id}/typing`, { typing }),
+  send: (id: ID, body: string, attachments: Attachment[] = []) => post<ChatMessage>(`/channels/${id}/messages`, { body, attachments }),
   react: (id: ID, messageId: ID, emoji: string) => post<ChatMessage>(`/channels/${id}/messages/${messageId}/reactions`, { emoji }),
+  /** Start (or open) the private 1-on-1 conversation with another registered member. */
   openDirect: (memberId: ID) => post<Conversation>("/channels/dm", { memberId }),
+  /** Everyone you can message: other registered members, with presence. */
+  directory: () => get<ChannelMember[]>("/channels/directory"),
+};
+
+export interface UploadHandle {
+  promise: Promise<Attachment>;
+  abort: () => void;
+}
+
+export const attachmentService = {
+  /** Uploads one file with progress. Resolves with the stored attachment (to be referenced when the message is sent). */
+  upload(file: File, onProgress?: (fraction: number) => void): UploadHandle {
+    const xhr = new XMLHttpRequest();
+    const promise = new Promise<Attachment>((resolve, reject) => {
+      if (file.size > MAX_FILE_BYTES) return reject(new ApiError(`“${file.name}” is larger than ${MAX_FILE_BYTES / 1024 / 1024} MB.`, 413));
+      const form = new FormData();
+      form.append("file", file, file.name);
+      xhr.open("POST", "/api/attachments");
+      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+      xhr.onload = () => {
+        let data: { attachments?: Attachment[]; error?: string } = {};
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          /* non-JSON response */
+        }
+        if (xhr.status === 401) sendToSignIn();
+        if (xhr.status >= 200 && xhr.status < 300 && data.attachments?.[0]) resolve(data.attachments[0]);
+        else reject(new ApiError(data.error ?? `Upload failed (${xhr.status})`, xhr.status));
+      };
+      xhr.onerror = () => reject(new ApiError("Can't reach the server. Check your connection and try again.", 0));
+      xhr.onabort = () => reject(new ApiError("Upload cancelled", 0));
+      xhr.send(form);
+    });
+    return { promise, abort: () => xhr.abort() };
+  },
+  /** Remove a file you uploaded but haven't sent. */
+  remove: (id: string) => del<{ id: string }>(`/attachments/${id}`),
+  textPreview: (id: string) => get<{ text: string; truncated: boolean }>(`/attachments/${id}?preview=text`),
 };
 
 /* Document Center */

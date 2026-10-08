@@ -10,6 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { normalizeChat } from "./chat";
 import { zonedParts, zonedTimeToUtc } from "@/lib/time";
 import { makeInitials } from "@/lib/utils";
 import type {
@@ -168,7 +169,7 @@ function seed(): Db {
       "Official updates and operational notices",
       "SaaS architecture launch announcements and system critical operations syncs.",
       ["m-stad", "m-joseph", "m-ray"],
-      { favorite: true, typingUser: "John Doe" },
+      { favorite: true },
     ),
     conv("c-design-system", "channel", "design-system", "Design tokens, components and UI guidelines", "Design tokens, components and UI guidelines.", ["m-stad", "m-joseph"], { unread: 2 }),
     conv("c-engineering-sync", "channel", "engineering-sync", "Engineering updates and syncs", "Engineering updates, reviews and syncs.", ["m-joseph", "m-stad", "m-ray"], { unread: 1 }),
@@ -189,6 +190,7 @@ function seed(): Db {
         authorInitials: "JAD",
         body: "Hi everyone! The UI design systems branch has been finalized. We are ready to merge into main. Coding phase begins now.",
         createdAt: at(0, 10, 15),
+        receipts: {},
         reactions: [
           { emoji: "👍", count: 4, reacted: false },
           { emoji: "🚀", count: 8, reacted: false },
@@ -203,6 +205,7 @@ function seed(): Db {
         authorInitials: "SO",
         body: "Excellent. I've initiated the setup for Screen 3 - Actions Kanban board. Let's make sure our tokens match perfectly.",
         createdAt: at(0, 10, 22),
+        receipts: {},
         reactions: [],
         attachments: [],
       },
@@ -218,6 +221,7 @@ function seed(): Db {
       authorInitials: "JAD",
       body: "Design tokens are published. Please pull the latest before starting new components.",
       createdAt: minsAgo(34),
+      receipts: {},
       reactions: [{ emoji: "👍", count: 2, reacted: false }],
       attachments: [],
     },
@@ -229,6 +233,7 @@ function seed(): Db {
       authorInitials: "JAD",
       body: "Spacing scale and radii are in the same release.",
       createdAt: minsAgo(33),
+      receipts: {},
       reactions: [],
       attachments: [],
     },
@@ -242,6 +247,7 @@ function seed(): Db {
       authorInitials: "JAD",
       body: "Reminder: the API review is on the calendar for this week.",
       createdAt: minsAgo(52),
+      receipts: {},
       reactions: [],
       attachments: [],
     },
@@ -254,6 +260,7 @@ function seed(): Db {
       authorInitials: "SC",
       body: "Could you review the Actions board when you get a chance?",
       createdAt: minsAgo(18),
+      receipts: {},
       reactions: [],
       attachments: [],
     },
@@ -404,16 +411,18 @@ type DbGlobals = {
 const g = globalThis as unknown as DbGlobals;
 const databaseUrl = process.env.DATABASE_URL;
 
-function pool(): Pool {
+/** Connection settings, shared by the pool and the dedicated LISTEN connection used by the realtime layer. */
+export function connectionConfig() {
   if (!databaseUrl) throw new Error("DATABASE_URL is not configured");
-  return (g.__teambasePool ??= new Pool({
-    connectionString: databaseUrl,
-    max: 10,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
-    ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined,
-  }));
+  return { connectionString: databaseUrl, ssl: process.env.PGSSLMODE === "require" ? { rejectUnauthorized: false } : undefined };
 }
+
+export const hasDatabase = (): boolean => !!databaseUrl;
+
+export function getPool(): Pool {
+  return (g.__teambasePool ??= new Pool({ ...connectionConfig(), max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000 }));
+}
+const pool = getPool;
 
 function normalizeDb(value: Db): Db {
   value.accounts ??= [];
@@ -427,6 +436,7 @@ function normalizeDb(value: Db): Db {
   value.activity ??= [];
   value.notifications ??= [];
   value.nextTicket ??= 1;
+  normalizeChat(value);
   return value;
 }
 
@@ -434,7 +444,10 @@ async function ensureSchema(): Promise<void> {
   if (!databaseUrl) return;
   g.__teambaseSchemaReady ??= (async () => {
     const db = pool();
-    await db.query(`
+    const lock = await db.connect();
+    try {
+      await lock.query("SELECT pg_advisory_lock(727001)");
+      await lock.query(`
       CREATE TABLE IF NOT EXISTS teambase_state (
         id SMALLINT PRIMARY KEY CHECK (id = 1),
         data JSONB NOT NULL,
@@ -442,10 +455,42 @@ async function ensureSchema(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
-    await db.query(
-      `INSERT INTO teambase_state (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING`,
-      [JSON.stringify(seed())],
-    );
+      await lock.query(
+        `INSERT INTO teambase_state (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING`,
+        [JSON.stringify(seed())],
+      );
+      // Who is connected right now (one row per open browser connection; stale rows expire). Ephemeral by design:
+      // presence changes every few seconds and must never go through the single locked state row.
+      await lock.query(`
+        CREATE TABLE IF NOT EXISTS teambase_presence (
+          conn_id TEXT PRIMARY KEY,
+          member_id TEXT NOT NULL,
+          instance_id TEXT NOT NULL,
+          last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await lock.query("CREATE INDEX IF NOT EXISTS teambase_presence_member_idx ON teambase_presence (member_id)");
+      // Chat attachments. The bytes live here (not in the JSON state); messages only reference them by id.
+      await lock.query(`
+        CREATE TABLE IF NOT EXISTS teambase_attachments (
+          id TEXT PRIMARY KEY,
+          uploader_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          mime TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          data BYTEA NOT NULL,
+          conversation_id TEXT,
+          message_id TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await lock.query("CREATE INDEX IF NOT EXISTS teambase_attachments_message_idx ON teambase_attachments (message_id)");
+      await lock.query("CREATE INDEX IF NOT EXISTS teambase_attachments_conversation_idx ON teambase_attachments (conversation_id)");
+    } finally {
+      await lock.query("SELECT pg_advisory_unlock(727001)").catch(() => undefined);
+      lock.release();
+    }
   })();
   return g.__teambaseSchemaReady;
 }
@@ -510,20 +555,6 @@ export function logActivity(db: Db, me: TeamMember, item: Omit<ActivityItem, "id
     ...item,
   });
   db.activity.length = Math.min(db.activity.length, 30);
-}
-
-/** Resolve live author name/initials for messages written by team members. */
-export function resolveMessage(db: Db, msg: ChatMessage): ChatMessage {
-  if (!msg.authorMemberId) return msg;
-  const m = db.members.find((x) => x.id === msg.authorMemberId);
-  return m ? { ...msg, authorName: m.name, authorInitials: m.initials } : msg;
-}
-
-/** DM peers that are team members take their presence from the directory. */
-export function resolveConversation(db: Db, c: Conversation): Conversation {
-  if (c.type !== "dm" || !c.peer?.memberId) return c;
-  const m = db.members.find((x) => x.id === c.peer?.memberId);
-  return m ? { ...c, name: m.name, peer: { ...c.peer, name: m.name, online: m.status === "active" } } : c;
 }
 
 export function wouldCreateCycle(db: Db, memberId: ID, newManagerId: ID | null): boolean {

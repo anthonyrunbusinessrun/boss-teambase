@@ -24,6 +24,11 @@ export interface TeamMember {
   /** Reporting line for the organizational chart. `null` = top of the chart. */
   managerId: ID | null;
   skills: string[];
+  /**
+   * Computed by the API, never stored: true when this person has a verified account and can sign in.
+   * Only registered people can be messaged and only they ever show a presence indicator.
+   */
+  registered?: boolean;
 }
 
 export type NewTeamMember = Pick<TeamMember, "name" | "role" | "department"> &
@@ -74,12 +79,55 @@ export type EventInput = Omit<CalendarEvent, "id">;
 export interface Reaction {
   emoji: string;
   count: number;
+  /** Whether *you* reacted (computed per viewer). */
   reacted: boolean;
+  /** Server-side only: who reacted. `count` then holds only reactions saved before this was tracked. */
+  by?: ID[];
 }
+
+export type AttachmentKind = "image" | "video" | "audio" | "pdf" | "text" | "file";
 
 export interface Attachment {
   name: string;
   size: number;
+  /** Present when the file is stored on the server. Older attachments only kept a name + size, so they can't be previewed or downloaded. */
+  id?: string;
+  mime?: string;
+  kind?: AttachmentKind;
+}
+
+/** One recipient's delivery/read receipt for a message. */
+export interface Receipt {
+  deliveredAt?: string;
+  seenAt?: string;
+}
+
+export type MessageState = "sent" | "delivered" | "seen";
+
+export interface MessageStatusRecipient {
+  memberId: ID;
+  name: string;
+  deliveredAt?: string;
+  seenAt?: string;
+}
+
+/**
+ * Delivery status of a message, shown to its author.
+ * `state` is the strictest state that holds for *every* recipient (so "seen" means everyone has seen it);
+ * the counts let the UI say "Seen by 2 of 3" in channels.
+ */
+export interface MessageStatus {
+  state: MessageState;
+  sentAt: string;
+  /** Number of registered people the message was addressed to when it was sent. */
+  total: number;
+  deliveredCount: number;
+  seenCount: number;
+  /** When it reached the latest recipient who has received it so far. */
+  deliveredAt?: string;
+  /** When the latest recipient who has seen it so far saw it. */
+  seenAt?: string;
+  recipients: MessageStatusRecipient[];
 }
 
 export interface ChatMessage {
@@ -93,28 +141,37 @@ export interface ChatMessage {
   createdAt: string;
   reactions: Reaction[];
   attachments: Attachment[];
+  /** Stored per recipient at send time. Server-side only — never returned by the API. */
+  receipts?: Record<ID, Receipt>;
+  /** Computed for the author's own messages only. */
+  status?: MessageStatus;
 }
 
 export interface DirectPeer {
   name: string;
   memberId?: ID;
-  online: boolean;
+  /** True only for people with a registered (verified) account. Presence is never shown for anyone else. */
+  registered?: boolean;
+  /** Only defined when `registered` is true. */
+  online?: boolean;
 }
 
 export interface Conversation {
   id: ID;
   type: "channel" | "dm";
-  /** Channel name without "#", or the peer's name for DMs. */
+  /** Channel name without "#", or — for DMs — the *other* person's name (resolved per viewer). */
   name: string;
   /** One-line description shown in the thread header. */
   description: string;
   /** Longer topic shown in the Channel Details panel. */
   topic: string;
   favorite: boolean;
+  /** Messages from other people that *you* haven't seen (computed per viewer). */
   unread: number;
   memberIds: ID[];
+  /** DMs: exactly who can see this conversation. Absent only on legacy placeholder conversations. */
+  participantIds?: ID[];
   peer?: DirectPeer;
-  typingUser?: string;
 }
 
 export interface ConversationList {
@@ -122,11 +179,27 @@ export interface ConversationList {
   unreadTotal: number;
 }
 
+/** A registered member as shown in the members panel and "new message" picker. */
+export interface ChannelMember extends TeamMember {
+  online: boolean;
+}
+
 export interface ConversationDetail {
   conversation: Conversation;
   messages: ChatMessage[];
-  members: TeamMember[];
+  /** Registered members only. */
+  members: ChannelMember[];
 }
+
+/* ----------------------------- Realtime ----------------------------- */
+
+/** Everything the server pushes over `/api/channels/events`. */
+export type RealtimeEvent =
+  | { type: "ready"; connectionId: string; online: ID[] }
+  | { type: "presence"; memberId: ID; online: boolean }
+  | { type: "typing"; conversationId: ID; memberId: ID; name: string; typing: boolean }
+  | { type: "message"; conversationId: ID; change: "created" | "updated" | "status"; messageIds: ID[] }
+  | { type: "conversation"; conversationId: ID; change: "created" | "updated" | "deleted" | "read" };
 
 /* ----------------------------- Reports / Document Center ----------------------------- */
 

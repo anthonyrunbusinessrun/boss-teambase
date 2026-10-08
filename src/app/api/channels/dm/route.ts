@@ -1,27 +1,39 @@
-import { mutateDb, newId, resolveConversation } from "@/server/db";
+import { mutateDb, newId } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
+import { presentConversation, registeredIds } from "@/server/chat";
+import { publishConversation } from "@/server/chat-events";
+import { hub } from "@/server/realtime";
 import type { Conversation } from "@/types/models";
 import { authed } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
-/** POST { memberId } — finds or creates a direct message with a team member. */
-export const POST = authed(async (req: Request) => {
+/**
+ * POST { memberId } — finds or creates the private 1-on-1 conversation between you and another *registered* member.
+ * There is exactly one per pair: it's the same conversation whichever of you opens it, and nobody else can see it.
+ */
+export const POST = authed(async (req: Request, _ctx, me) => {
   const body = await readJson(req);
   const memberId = str(body?.memberId);
-  return mutateDb((db) => {
-    const member = db.members.find((m) => m.id === memberId);
-    if (!member) return fail("Team member not found", 404);
-    let convo = db.conversations.find((c) => c.type === "dm" && c.peer?.memberId === memberId);
-    if (!convo) {
-      const created: Conversation = {
-        id: newId("dm"), type: "dm", name: member.name, description: "Direct message",
-        topic: `Direct message with ${member.name}.`, favorite: false, unread: 0, memberIds: [],
-        peer: { name: member.name, memberId, online: member.status === "active" },
-      };
-      db.conversations.push(created);
-      convo = created;
+  if (memberId === me.id) return fail("You can't start a conversation with yourself.");
+  await hub.ensureStarted();
+  const result = await mutateDb((db) => {
+    const target = db.members.find((m) => m.id === memberId);
+    if (!target) return { ok: false, error: "Team member not found", status: 404 } as const;
+    if (!registeredIds(db).has(memberId)) return { error: `${target.name} hasn't registered a Teambase account yet, so you can't message them.`, status: 400 } as const;
+    let c = db.conversations.find((x) => x.type === "dm" && x.participantIds?.length === 2 && x.participantIds.includes(me.id) && x.participantIds.includes(memberId));
+    const created = !c;
+    if (!c) {
+      c = {
+        id: newId("dm"), type: "dm", name: target.name, description: "Direct message", topic: `Direct message with ${target.name}.`,
+        favorite: false, unread: 0, memberIds: [], participantIds: [me.id, memberId], peer: { name: target.name, memberId },
+      } satisfies Conversation;
+      db.conversations.push(c);
+      db.messages[c.id] = [];
     }
-    return ok(resolveConversation(db, convo));
+    return { ok: true, c, created, presented: presentConversation(db, c, me.id, hub.isOnline) } as const;
   });
+  if (!result.ok) return fail(result.error, result.status);
+  if (result.created) publishConversation(result.c, "created");
+  return ok(result.presented, result.created ? 201 : 200);
 });

@@ -40,7 +40,7 @@ Copy `.env.example` to `.env.local` to set these values.
 | Screen | Route | Notes |
 |---|---|---|
 | Dashboard | `/` | Live greeting, KPIs (move with the task board), activity feed, quick actions, today's agenda |
-| Channels | `/channels` | Channels + DMs, unread badges, send, reactions, attachments, emoji, in-thread search, pin to favorites |
+| Channels | `/channels` | Channels + private DMs, live online status and typing, Sent/Delivered/Seen, formatted messages, attachment previews + downloads, reactions, in-thread search, pin to favorites |
 | Actions | `/actions` | Kanban with drag-and-drop, filters, task details panel, create / edit / delete |
 | Calendar | `/calendar` | Month / Week / Day, add / edit / delete events and meetings, team availability |
 | Team Directory | `/team` | Search + filters, member cards, org chart built from reporting lines, add / edit / delete members |
@@ -63,6 +63,9 @@ UI components  ──►  src/services  ──►  /api route handlers  ──�
 - `src/services/` — the **only** place the UI talks to the backend. Point `NEXT_PUBLIC_API_BASE` at another server, or edit `http.ts`.
 - `src/app/api/**` — Node route handlers with validation. They only call `getDb()` and its helpers.
 - `src/server/db.ts` — transactional PostgreSQL persistence with a no-config local fallback.
+- `src/server/chat.ts` — the messaging **rules** as pure functions (who is registered, who may see a DM, receipts, unread, status). Unit-tested.
+- `src/server/realtime.ts` — the live-connection hub: presence, typing, event fan-out across server replicas.
+- `src/server/files.ts` — attachment storage and byte-level file-type detection. `src/server/chat-events.ts` — publishing helpers.
 - `src/server/auth.ts` — session tokens and `authed()`, which wraps every protected API route.
 - `src/proxy.ts` — redirects signed-out visitors (an optimistic cookie check only; see below).
 - `src/components/` — `buttons`, `cards`, `forms`, `modals`, `header`, `navigation`, `layout`, `shared`, plus one folder per screen.
@@ -79,6 +82,37 @@ UI components  ──►  src/services  ──►  /api route handlers  ──�
 - **Also in place:** cross-origin write requests are refused, and `?next=` only accepts same-site paths (no open redirects).
 - **Client:** any 401 sends the user to `/signin?reason=expired` and back to the same page after signing in. Pages restored from the
   browser's back/forward cache re-check the session.
+
+### Channels & messaging
+
+**Who counts as a registered user.** An account with a password *and* a verified email (`isRegisteredAccount` in `src/server/chat.ts`) — exactly the
+people who can sign in. Only they can be online, appear in a members list, or be messaged. Seeded demo people, members added without an account, and
+unverified accounts never show presence and aren't listed. Change that one function if your definition differs.
+
+| Requirement | How it works |
+|---|---|
+| **Online / Offline** | Every signed-in browser keeps one live connection open (Server-Sent Events, `/api/channels/events`, opened by `RealtimeProvider` for the whole app — not just the Channels page). Connected = online. Several tabs count as one person; a page reload doesn't flash "offline" (4 s grace). |
+| **Typing** | Sent while composing (`POST /api/channels/:id/typing`), shown as "Stad is typing…" / "Stad and Ray are typing…". Never stored in the database. Clears when the person sends, clears the box, leaves the box, goes idle, disconnects, or after 6 s server-side. Private conversations only tell their participants. |
+| **Sent / Delivered / Seen** | Each message keeps a receipt per registered recipient, snapshotted at send time. *Delivered* = reached their open app (instantly if they're online, otherwise the moment the app next connects). *Seen* = they were looking at the conversation (tab visible, scrolled to the bottom). Shown on your own messages with the date/time; click for a per-person breakdown. In channels it reads "Seen by 2 of 3" until everyone has. |
+| **Members + private DMs** | The members panel lists registered people only; each is selectable and opens a card with **Send message**. The **+** next to *Direct Messages* opens a picker. A DM has a participant list: one conversation per pair, same for both of them, invisible to everyone else (every route enforces it). |
+| **Formatting, copy/paste, long messages** | Text is stored exactly as written (only blank lines at the very start and whitespace at the very end are trimmed). The composer is a multi-line box — Enter sends, Shift+Enter adds a line. Limit **20,000** characters; over-long pastes are *flagged, never silently cut*. Long messages show a 12-line preview with **Show more / Show less**. A **Copy** button and normal selection both copy the original text. Unsent drafts survive switching conversations. |
+| **Attachments** | Up to 5 files of 10 MB per message, stored in PostgreSQL. Images preview inline (click for a full-size view), video/audio get players, text files show their first lines, everything else is a file card. Every attachment has **Download** (original filename). Paste a screenshot or drag files onto the composer. A file's type comes from its *bytes*, never its name — HTML named `.png` is never rendered, SVG/HTML/executables are download-only, and nothing uploaded can run script on your origin. |
+
+**Data and tables.** Messages, receipts, conversations and participants live in the existing `teambase_state` JSON document, as before.
+Two small tables are created automatically on first start: `teambase_presence` (who is connected right now — changes every few seconds, so it must not go
+through the single locked state row) and `teambase_attachments` (file bytes; messages only hold a reference).
+
+**Several servers.** Events fan out through PostgreSQL `LISTEN/NOTIFY`, so replicas and rolling deploys stay in sync with no extra infrastructure.
+Each server keeps one extra dedicated database connection for this. If a server crashes without disconnecting, its users go offline everywhere once
+their heartbeat expires (about 75 s).
+
+**Upgrading existing data.** Done automatically on read, nothing to run: DMs saved before participants existed get them from who is in the
+conversation (so outsiders lose access and participants keep it); messages saved before receipts existed count as already read (no unread flood);
+reactions saved with the old single shared flag keep their counts; old name-and-size-only attachments still display, marked as unavailable.
+The Sarah / John / Liam placeholder DMs stay visible to everyone but have no presence, members or status, because they aren't registered users.
+
+**Behaviour changes worth knowing.** Unread counts are now per person (they used to be one number shared by everyone). Reactions are per person
+(they used to share one "you reacted" flag). Typing and presence are real (the old `typingUser` demo value is gone).
 
 ### Adding Screens 5 and 6 later
 Replace the `ComingSoon` in `src/app/projects/page.tsx` / `src/app/ai-command/page.tsx`. Routes, sidebar items and titles already exist.
@@ -108,17 +142,33 @@ Replace the `ComingSoon` in `src/app/projects/page.tsx` / `src/app/ai-command/pa
 ## Known limits (prototype)
 
 - New accounts must verify their email before signing in. Resend and a verified sender domain are required in production.
-- File attachments and report uploads keep only the file name — there is no file storage.
-- The in-memory store is per server process and resets on restart.
+- Report uploads (Document Center) still keep only the file name. Chat attachments are stored (see above).
+- Without `DATABASE_URL` (local fallback) everything is in memory: presence is per process and data resets on restart.
+- Presence means "has Teambase open", not "is active": there is no idle/away state yet.
+- Files are loaded fully into memory to serve them (fine at the 10 MB limit; move to object storage before raising it much).
 
 ## Testing
 
-`qa/functional.py` is a Playwright (Python) suite that drives a real browser through the whole app — navigation, every form,
-drag-and-drop, keyboard use, error states, print styles and responsive overflow (including the sign-in flows). `qa/overflow.py <width>` lists any element
-that overflows the viewport at a given width.
+Current suites (they need a PostgreSQL `DATABASE_URL`, a production build, and `pip install playwright && playwright install chromium` for the browser one):
 
 ```bash
-pip install playwright && playwright install chromium
-npm run build && npm start -- -p 3001     # use a fresh server: the suite creates data
-python3 qa/functional.py                  # BASE=http://host:port to target another server
+npx tsx src/server/chat.test.ts            # messaging rules + helpers (no database needed)
+npx tsx src/lib/calendar.test.ts           # date/time maths
+npx tsx src/lib/auth.test.ts               # redirect guard, token decoding
+
+# integration — use a scratch database; these create test users and data
+npm run build
+DATABASE_URL=postgresql://… node qa/support/seed-accounts.mjs      # after the app has started once
+BASE=http://localhost:3201 node qa/api/channels.test.mjs           # backend over real HTTP + live events (52 checks)
+A=http://localhost:3201 B=http://localhost:3202 PID_B=/tmp/pid3202 \
+  node qa/api/multi-instance.test.mjs                              # two servers, one database, incl. a hard crash (10 checks)
+BASE=http://localhost:3201 python3 qa/browser/channels.py          # real browser, several signed-in users (55 checks)
 ```
+
+`qa/support/seed-accounts.mjs` creates accounts with a **known test password** — never run it against a real database.
+
+> Browser tests can't use Playwright's `wait_until="networkidle"`: every page now holds a live connection open, so the network is never idle.
+> Wait for an element instead.
+
+`qa/functional.py` and `qa/overflow.py` are the earlier whole-app suite. They predate password sign-in and the always-open live connection, so they
+need updating before they pass again; they were left untouched.

@@ -10,7 +10,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api";
 let redirecting = false;
 
 /** The session ended (expired, signed out elsewhere, account removed): go to sign-in and come back afterwards. */
-function sendToSignIn() {
+export function sendToSignIn() {
   if (typeof window === "undefined" || redirecting) return;
   if (window.location.pathname.startsWith("/signin")) return;
   redirecting = true;

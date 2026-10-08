@@ -31,5 +31,7 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   // Everything except Next's own assets and the public brand files.
-  matcher: ["/((?!_next/static|_next/image|brand/|icon\\.png|favicon\\.ico).*)"],
+  // api/attachments is excluded on purpose: the proxy buffers request bodies and truncates them at 10 MB, which would break
+  // uploads close to the file-size limit. Those routes are still protected — authed() rejects before reading any body.
+  matcher: ["/((?!_next/static|_next/image|api/attachments|brand/|icon\\.png|favicon\\.ico).*)"],
 };

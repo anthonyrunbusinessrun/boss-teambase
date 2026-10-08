@@ -2,11 +2,14 @@ import { getDb, makeInitials, mutateDb, newId } from "@/server/db";
 import { fail, ok, readJson, str } from "@/server/http";
 import type { TeamMember } from "@/types/models";
 import { authed } from "@/server/auth";
+import { presentMember } from "@/server/chat";
 
 export const dynamic = "force-dynamic";
 
+/** The directory, each person flagged `registered` (verified account) — only those can be messaged. */
 export const GET = authed(async () => {
-  return ok((await getDb()).members);
+  const db = await getDb();
+  return ok(db.members.map((m) => presentMember(db, m)));
 });
 
 export const POST = authed(async (req: Request) => {

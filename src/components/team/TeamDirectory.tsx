@@ -136,7 +136,7 @@ export function TeamDirectory() {
                 <p className={styles.memberRole}>{m.role}</p>
                 <p className={styles.memberDept}>{m.department}</p>
                 <div className={styles.memberActions}>
-                  <Button variant="tint" onClick={() => chat(m)} disabled={m.id === me.id || chatBusy === m.id} title={m.id === me.id ? "That's you" : `Message ${m.name}`}>
+                  <Button variant="tint" onClick={() => chat(m)} disabled={m.id === me.id || !m.registered || chatBusy === m.id} title={m.id === me.id ? "That's you" : !m.registered ? `${m.name} hasn't registered a Teambase account yet` : `Message ${m.name}`}>
                     Chat
                   </Button>
                   <Button variant="compact" style={{ height: 32 }} onClick={() => openProfile(m.id)}>
